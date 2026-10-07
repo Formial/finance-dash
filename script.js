@@ -1,5 +1,5 @@
 // Formial Finance dashboard — vanilla JS, data kept in localStorage.
-// Per-month record: rx counts (new/refill x cream20/cream50/foam), revenue,
+// Per-month record: rx counts (new/refill x cream20/cream50/foam),
 // COGS components, optional manual COGS override, a justification note.
 // Ledger: R&D / Marketing / Others expenses with dates.
 (function () {
@@ -80,8 +80,7 @@
     const exp = { 'R&D': 0, Marketing: 0, Others: 0 };
     state.ledger.forEach((e) => { if (e.date && e.date.slice(0, 7) === m && exp[e.cat] !== undefined) exp[e.cat] += num(e.amt); });
     const opex = exp['R&D'] + exp.Marketing + exp.Others;
-    const revenue = num(r.revenue);
-    return { total, byType, byCust, parts, computed, overridden, cogs, exp, opex, revenue, perRx: total ? cogs / total : 0, has: !!(total || cogs || opex || revenue) };
+    return { total, byType, byCust, parts, computed, overridden, cogs, exp, opex, perRx: total ? cogs / total : 0, has: !!(total || cogs || opex) };
   }
 
   // ---- rendering ----------------------------------------------------------
@@ -95,7 +94,6 @@
   function renderKpis(c, p) {
     const items = [
       ['Prescriptions', c.total.toLocaleString('en-IN'), delta(c.total, p.total)],
-      ['Revenue', inr(c.revenue), delta(c.revenue, p.revenue)],
       ['COGS', inr(c.cogs), delta(c.cogs, p.cogs, true) + (c.overridden ? '<div class="d">manual override</div>' : '')],
       ['COGS per Rx', inr(c.perRx), delta(c.perRx, p.perRx, true)],
       ['R&D + Mktg + Others', inr(c.opex), delta(c.opex, p.opex, true)],
@@ -173,7 +171,6 @@
       if (comps[0] && comps[0][1]) lines.push(`Biggest mover in COGS: <b>${comps[0][0]}</b> (${comps[0][1] >= 0 ? '+' : '−'}${inr(Math.abs(comps[0][1]))}).`);
     } else lines.push('No previous month to compare against.');
     if (c.overridden) lines.push(`COGS is manually fixed at ${inr(c.cogs)}; computed from components it would be ${inr(c.computed)}.`);
-    if (c.revenue) lines.push(`Gross margin after COGS: ${(((c.revenue - c.cogs) / c.revenue) * 100).toFixed(1)}%.`);
     $('analysis').innerHTML = lines.map((l) => `<p>${l}</p>`).join('');
   }
 
@@ -182,7 +179,7 @@
     const f = (id, lbl, val, ph) => `<label class="fld"><span>${lbl}</span><input type="number" min="0" step="any" data-k="${id}" value="${val ?? ''}" placeholder="${ph || '0'}"></label>`;
     $('form').innerHTML =
       CUST.map(([c, cn]) => `<h3>${cn} customers — Rx count</h3>` + TYPES.map(([t, tn]) => f('rx.' + c + '_' + t, tn, rx[c + '_' + t])).join('')).join('') +
-      '<h3>Revenue</h3>' + f('revenue', 'Revenue (₹)', r.revenue) +
+
       '<h3>COGS (₹)</h3>' + f('cogs.cream', 'Cream ingredients', cg.cream) + f('cogs.foam', 'Foam ingredients', cg.foam) + f('cogs.pack', 'Packaging', cg.pack) + f('cogs.manual', 'Manual usage', cg.manual) +
       f('cogs.override', 'Fix COGS manually', cg.override, 'auto') ;
     $('note').value = r.note || '';
