@@ -6,7 +6,7 @@
   const KEY = 'formial_finance_v1';
   const PUMPS = [['new', 'New pumps'], ['refill', 'Refill pumps'], ['lotion', 'Lotion'], ['foam', 'Foam']];
   const PCOL = { new: 'var(--c1)', refill: 'var(--c3)', lotion: 'var(--c2)', foam: 'var(--c4)' };
-  const DEFAULT_UNIT = { new: { pack: 197, api: 35 }, refill: { pack: 70, api: 35 }, lotion: { pack: '', api: '' }, foam: { pack: '', api: '' } };
+  const DEFAULT_UNIT = { new: { pack: '', api: '' }, refill: { pack: '', api: '' }, lotion: { pack: '', api: '' }, foam: { pack: '', api: '' } };
   const CATS = ['R&D', 'Marketing', 'Others'];
   const COLORS = { rx: 'var(--c1)', 'R&D': 'var(--c2)', Marketing: 'var(--c3)', Others: 'var(--c4)' };
   const $ = (id) => document.getElementById(id);
