@@ -209,11 +209,10 @@
     if (msg) msg.textContent = '';
 
     try {
-      // Determine endpoint: relative /api/sync if on http server, or localhost:3000 if file://
-      const endpoint = window.location.protocol.startsWith('http') ? '/api/sync' : 'http://localhost:3000/api/sync';
-      const res = await fetch(endpoint);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const result = await res.json();
+      if (!window.location.protocol.startsWith('http')) throw new Error('NOSERVER');
+      const res = await fetch('/api/sync', { method: 'POST' });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
       if (result.ok && result.data) {
         state = result.data;
         save();
@@ -227,24 +226,10 @@
       }
     } catch (err) {
       console.warn('Sync failed:', err);
-      // Fallback: try reading data.json statically
-      try {
-        const localRes = await fetch('data.json');
-        if (localRes.ok) {
-          const localData = await localRes.json();
-          if (localData && localData.months) {
-            state = Object.assign(localData, state);
-            save();
-            render();
-            if (msg) msg.textContent = 'Loaded data.json';
-            return;
-          }
-        }
-      } catch (e) {}
-
       if (msg) {
-        msg.textContent = 'Server offline (run npm start)';
-        setTimeout(() => { if (msg) msg.textContent = ''; }, 4000);
+        const offline = err.message === 'NOSERVER' || err instanceof TypeError;
+        msg.textContent = offline ? 'Server offline — run npm start, open localhost:3000' : 'Sync failed: ' + err.message;
+        setTimeout(() => { if (msg) msg.textContent = ''; }, 8000);
       }
     } finally {
       btn.classList.remove('syncing');
@@ -255,26 +240,21 @@
 
   if ($('syncBtn')) $('syncBtn').onclick = syncWithMongo;
 
-  // On page load, try loading existing data.json or server data
+  // On page load, the server's data.json is the source of truth when the
+  // server is running (it is saved on every edit). If it's empty but this
+  // browser holds data, push the browser's copy up instead of losing it.
   (async function init() {
-    try {
-      const endpoint = window.location.protocol.startsWith('http') ? '/api/data' : 'data.json';
-      const res = await fetch(endpoint);
-      if (res.ok) {
-        const d = await res.json();
-        if (d && d.months) {
-          // Merge so we don't wipe any local notes/revenue
-          Object.keys(d.months).forEach((m) => {
-            state.months[m] = Object.assign({}, d.months[m], state.months[m] || {});
-          });
-          if (Array.isArray(d.ledger) && d.ledger.length && (!state.ledger || !state.ledger.length)) {
-            state.ledger = d.ledger;
-          }
-          save();
-        }
-      }
-    } catch (e) {}
     render();
+    if (!window.location.protocol.startsWith('http')) return;
+    try {
+      const res = await fetch('/api/data');
+      if (!res.ok) return;
+      const d = await res.json();
+      const serverHas = d && d.months && (Object.keys(d.months).length || (d.ledger || []).length);
+      if (serverHas) { state = { months: d.months, ledger: d.ledger || [] }; try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+      else if (Object.keys(state.months).length || state.ledger.length) save();
+      render();
+    } catch (e) {}
   })();
 })();
 

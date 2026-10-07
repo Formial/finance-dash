@@ -10,3 +10,7 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Local finance figures
+data.json
+data.json.tmp
