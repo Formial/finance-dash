@@ -81,7 +81,7 @@
     state.ledger.forEach((e) => { if (e.date && e.date.slice(0, 7) === m && exp[e.cat] !== undefined) exp[e.cat] += num(e.amt); });
     const opex = exp['R&D'] + exp.Marketing + exp.Others;
     const revenue = num(r.revenue);
-    return { total, byType, byCust, parts, computed, overridden, cogs, exp, opex, revenue, perRx: total ? cogs / total : 0, net: revenue - cogs - opex, has: !!(total || cogs || opex || revenue) };
+    return { total, byType, byCust, parts, computed, overridden, cogs, exp, opex, revenue, perRx: total ? cogs / total : 0, has: !!(total || cogs || opex || revenue) };
   }
 
   // ---- rendering ----------------------------------------------------------
@@ -99,7 +99,6 @@
       ['COGS', inr(c.cogs), delta(c.cogs, p.cogs, true) + (c.overridden ? '<div class="d">manual override</div>' : '')],
       ['COGS per Rx', inr(c.perRx), delta(c.perRx, p.perRx, true)],
       ['R&D + Mktg + Others', inr(c.opex), delta(c.opex, p.opex, true)],
-      ['Net', inr(c.net), delta(c.net, p.net)],
     ];
     $('kpis').innerHTML = items.map(([l, v, d]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div>${d}</div>`).join('');
   }
@@ -174,7 +173,7 @@
       if (comps[0] && comps[0][1]) lines.push(`Biggest mover in COGS: <b>${comps[0][0]}</b> (${comps[0][1] >= 0 ? '+' : '−'}${inr(Math.abs(comps[0][1]))}).`);
     } else lines.push('No previous month to compare against.');
     if (c.overridden) lines.push(`COGS is manually fixed at ${inr(c.cogs)}; computed from components it would be ${inr(c.computed)}.`);
-    if (c.revenue) lines.push(`Gross margin after COGS: ${(((c.revenue - c.cogs) / c.revenue) * 100).toFixed(1)}%; after R&D/marketing/others: ${((c.net / c.revenue) * 100).toFixed(1)}%.`);
+    if (c.revenue) lines.push(`Gross margin after COGS: ${(((c.revenue - c.cogs) / c.revenue) * 100).toFixed(1)}%.`);
     $('analysis').innerHTML = lines.map((l) => `<p>${l}</p>`).join('');
   }
 
