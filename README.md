@@ -1,6 +1,6 @@
 # Formial Finance Dashboard
 
-Monthly Rx counts, COGS, R&D / marketing / other costs and cost trends for Formial Labs Pharmacy.
+Monthly pump counts, cost per pump, COGS and cost trends for Formial Labs Pharmacy.
 
 ## Run locally
 1. `npm install`
@@ -17,5 +17,5 @@ Set these environment variables for Production, then redeploy:
 Figures (revenue, notes, ledger, synced numbers) are stored in the `financeDashboard` collection of the same database, so the deployed site and a local run share one set of data.
 
 ## Notes
-- `lib/formulas.js` and `lib/cogs.js` are copies of the pharmacy dashboard's COGS engine, so synced numbers match its Inventory report. Re-copy them if those formulas change.
-- Sync fills Rx counts and COGS; revenue, notes, the manual COGS override and the expense ledger are never overwritten.
+- Total COGS = Rx cost (pump counts x the saved cost per pump: packaging + API) + manual usage (the R&D / marketing / others ledger).
+- Sync only fills pump counts (new / refill / foam) from the pharmacy's daily Rx log. Lotion counts, notes, the manual Rx-cost override, cost per pump and the ledger are never overwritten.

@@ -1,109 +1,71 @@
-// Pulls prescriptions + stock/price data from the pharmacy MongoDB and turns
-// them into the dashboard's per-month figures. The COGS maths is the pharmacy
-// app's own engine (lib/cogs.js calcAll), so numbers match its Inventory report.
+// Pulls the daily prescription log from the pharmacy MongoDB and turns it into
+// per-month pump counts. Costs are NOT taken from the pharmacy: the dashboard
+// multiplies these counts by its own saved cost per pump.
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { calcAll } from './lib/cogs.js';
 import { getDb, closeDb } from './lib/mongo.js';
 import { getState, setState } from './lib/store.js';
 
 dotenv.config();
 
-const lastDay = (m) => {
-  const [y, mo] = m.split('-').map(Number);
-  return `${m}-${String(new Date(y, mo, 0).getDate()).padStart(2, '0')}`;
-};
+// One non-empty line in the log = one prescription (same rule as the pharmacy app).
+const countLines = (txt) => (typeof txt === 'string' ? txt.split('\n').filter((l) => l.trim()).length : 0);
 
-// Pure: raw collections in, { 'YYYY-MM': { rx, cogs, meta } } out.
-export function computeMonths(state) {
-  const dailyRxLog = state.dailyRxLog || {};
-  const months = [...new Set(Object.keys(dailyRxLog).map((d) => d.slice(0, 7)))].sort();
+// Pure: dailyRxLog in, { 'YYYY-MM': { pumps: { new, refill, foam }, meta } } out.
+//  - cream (20g + 50g) lines are split into new / refill using the customer
+//    counts logged each day; repeat orders are re-made from scratch, so they
+//    count as new (same as the pharmacy's packaging logic)
+//  - foam lines are counted as foam
+export function computeMonths(dailyRxLog = {}) {
+  const months = {};
+  Object.keys(dailyRxLog).sort().forEach((d) => {
+    const e = dailyRxLog[d];
+    if (!e || typeof e !== 'object') return;
+    const m = (months[d.slice(0, 7)] = months[d.slice(0, 7)] || { cream: 0, foam: 0, newCust: 0, oldCust: 0, repeatCust: 0, days: 0 });
+    m.cream += countLines(e.rx20) + countLines(e.rx50);
+    m.foam += countLines(e.rxfoam);
+    m.newCust += +e.newCust || 0;
+    m.oldCust += +e.oldCust || 0;
+    m.repeatCust += +e.repeatCust || 0;
+    m.days += 1;
+  });
+
   const out = {};
-
-  months.forEach((m) => {
-    const from = `${m}-01`;
-    const to = lastDay(m);
-    const full = calcAll(state, from, to);
-
-    // Cream vs foam ingredient cost: deductions add up per Rx line, so costing
-    // the cream and foam lines separately (without manual usage) splits ingCost.
-    const only = (keys) => {
-      const log = {};
-      Object.keys(dailyRxLog).forEach((d) => {
-        if (d < from || d > to) return;
-        const e = dailyRxLog[d] || {};
-        log[d] = Object.fromEntries(keys.map((k) => [k, e[k]]));
-      });
-      return calcAll({ ...state, dailyRxLog: log, manualApiUsage: [], manualPkgUsage: [], baseProductionLog: [] }, from, to).ingCost;
-    };
-    const creamCost = only(['rx20', 'rx50']);
-    const foamCost = only(['rxfoam']);
-
-    // Customer mix: repeat orders are re-made from scratch, so they count as new
-    // (same as the pharmacy's packaging logic). The mix is applied to each kit.
-    const newN = full.newCust + full.repeatCust;
-    const newRatio = newN + full.oldCust > 0 ? newN / (newN + full.oldCust) : 1;
-    const split = (n) => { const a = Math.round(n * newRatio); return [a, n - a]; };
-    const [new_c20, refill_c20] = split(full.n20);
-    const [new_c50, refill_c50] = split(full.n50);
-    const [new_foam, refill_foam] = split(full.nf);
-
-    out[m] = {
-      rx: { new_c20, refill_c20, new_c50, refill_c50, new_foam, refill_foam },
-      cogs: {
-        cream: Math.round(creamCost),
-        foam: Math.round(foamCost),
-        // Packaging excluding manual waste; waste + manual ingredient usage = "manual"
-        pack: Math.round(full.pkgCost - full.pkgWasteCost),
-        manual: Math.round(full.manCost + full.pkgWasteCost),
-      },
-      meta: {
-        daysLogged: Object.keys(dailyRxLog).filter((d) => d.slice(0, 7) === m).length,
-        totalRx: full.tot,
-        newCust: full.newCust,
-        oldCust: full.oldCust,
-        repeatCust: full.repeatCust,
-        pharmacyGrand: Math.round(full.grand),
-      },
+  Object.keys(months).forEach((k) => {
+    const m = months[k];
+    const newN = m.newCust + m.repeatCust;
+    const ratio = newN + m.oldCust > 0 ? newN / (newN + m.oldCust) : 1;
+    const newPumps = Math.round(m.cream * ratio);
+    out[k] = {
+      pumps: { new: newPumps, refill: m.cream - newPumps, foam: m.foam },
+      meta: { daysLogged: m.days, newCust: m.newCust, oldCust: m.oldCust, repeatCust: m.repeatCust },
     };
   });
   return out;
 }
 
-export async function fetchMonthlyPrescriptionsAndCOGS() {
+export async function fetchMonthlyPumps() {
   const db = await getDb();
-  const rows = (name) => db.collection(name).find().toArray();
-  const [meta, apis, creamBase, foamBase, packaging, manualApiUsage, manualPkgUsage, baseProductionLog] = await Promise.all([
-    db.collection('appMeta').findOne({ _id: 'dailyRxLog' }),
-    rows('apis'), rows('creamBase'), rows('foamBase'), rows('packaging'),
-    rows('manualApiUsage'), rows('manualPkgUsage'), rows('baseProductionLog'),
-  ]);
-  if (!apis.length) throw new Error(`No ingredient prices found in database "${db.databaseName}" - check MONGODB_URI / MONGODB_DB.`);
-
-  return computeMonths({
-    dailyRxLog: meta?.value || {},
-    apis, creamBase, foamBase, packaging, manualApiUsage, manualPkgUsage, baseProductionLog,
-  });
+  const doc = await db.collection('appMeta').findOne({ _id: 'dailyRxLog' });
+  return computeMonths(doc?.value || {});
 }
 
-// Merge synced figures into a dashboard state, keeping revenue, notes, manual
-// COGS override and the expense ledger.
+// Merge synced counts into the dashboard state. Lotion counts, notes, any manual
+// Rx-cost override and the expense ledger are kept; old rx/cogs fields are dropped.
 export function mergeSynced(current, synced) {
   Object.keys(synced).forEach((m) => {
     const prev = current.months[m] || {};
-    current.months[m] = {
-      ...prev,
-      rx: synced[m].rx,
-      cogs: { ...synced[m].cogs, override: prev.cogs?.override ?? '' },
-    };
+    const { rx, cogs, ...rest } = prev;
+    const override = rest.override !== undefined ? rest.override : cogs?.override ?? '';
+    current.months[m] = { ...rest, override, pumps: { ...(rest.pumps || {}), ...synced[m].pumps } };
   });
   return current;
 }
 
 // CLI: `npm run sync` updates the stored dashboard data without starting the server.
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  fetchMonthlyPrescriptionsAndCOGS()
+  fetchMonthlyPumps()
     .then(async (data) => {
       await setState(mergeSynced(await getState(), data));
       console.log('Synced months:', Object.keys(data).join(', '));

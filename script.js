@@ -4,16 +4,27 @@
 // Ledger: R&D / Marketing / Others expenses with dates.
 (function () {
   const KEY = 'formial_finance_v1';
-  const TYPES = [['c20', 'Cream 20g'], ['c50', 'Cream 50g'], ['foam', 'Foam']];
-  const CUST = [['new', 'New'], ['refill', 'Refill']];
+  const PUMPS = [['new', 'New pumps'], ['refill', 'Refill pumps'], ['lotion', 'Lotion'], ['foam', 'Foam']];
+  const PCOL = { new: 'var(--c1)', refill: 'var(--c3)', lotion: 'var(--c2)', foam: 'var(--c4)' };
+  const DEFAULT_UNIT = { new: { pack: 197, api: 35 }, refill: { pack: 70, api: 35 }, lotion: { pack: '', api: '' }, foam: { pack: '', api: '' } };
   const CATS = ['R&D', 'Marketing', 'Others'];
-  const COLORS = { cogs: 'var(--c1)', 'R&D': 'var(--c2)', Marketing: 'var(--c3)', Others: 'var(--c4)' };
+  const COLORS = { rx: 'var(--c1)', 'R&D': 'var(--c2)', Marketing: 'var(--c3)', Others: 'var(--c4)' };
   const $ = (id) => document.getElementById(id);
   const inr = (n) => '₹' + Math.round(n || 0).toLocaleString('en-IN');
   const num = (v) => (isFinite(+v) ? +v : 0);
 
-  let state = { months: {}, ledger: [] };
-  try { state = Object.assign(state, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+  // Every state we accept (browser cache, server, import, sync) goes through here.
+  function normalize(s) {
+    s = s && typeof s === 'object' ? s : {};
+    s.months = s.months && typeof s.months === 'object' ? s.months : {};
+    s.ledger = Array.isArray(s.ledger) ? s.ledger : [];
+    const u = s.unitCosts || {};
+    s.unitCosts = {};
+    PUMPS.forEach(([k]) => { s.unitCosts[k] = Object.assign({}, DEFAULT_UNIT[k], u[k]); });
+    return s;
+  }
+  let state = normalize({});
+  try { state = normalize(JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
 
   const online = window.location.protocol.startsWith('http');
   const cache = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
@@ -68,23 +79,27 @@
   const rec = (m) => state.months[m] || {};
 
   // ---- calculations -------------------------------------------------------
+  // COGS = Rx cost (pumps x saved cost per pump) + manual usage (R&D + marketing + others ledger).
   function calc(m) {
-    const r = rec(m), rx = r.rx || {};
-    let total = 0; const byType = {}, byCust = { new: 0, refill: 0 };
-    TYPES.forEach(([t]) => { byType[t] = 0; CUST.forEach(([c]) => { const v = num(rx[c + '_' + t]); byType[t] += v; byCust[c] += v; total += v; }); });
-    const cg = r.cogs || {};
-    const parts = { cream: num(cg.cream), foam: num(cg.foam), pack: num(cg.pack), manual: num(cg.manual) };
-    const computed = parts.cream + parts.foam + parts.pack + parts.manual;
-    const overridden = cg.override !== undefined && cg.override !== '' && cg.override !== null;
-    const cogs = overridden ? num(cg.override) : computed;
+    const r = rec(m), pu = r.pumps || {};
+    const counts = {}, unit = {}, cost = {};
+    let total = 0, computed = 0;
+    PUMPS.forEach(([k]) => {
+      const u = state.unitCosts[k] || {};
+      counts[k] = num(pu[k]); unit[k] = num(u.pack) + num(u.api); cost[k] = counts[k] * unit[k];
+      total += counts[k]; computed += cost[k];
+    });
+    const overridden = r.override !== undefined && r.override !== null && r.override !== '';
+    const rxCost = overridden ? num(r.override) : computed;
     const exp = { 'R&D': 0, Marketing: 0, Others: 0 };
     state.ledger.forEach((e) => { if (e.date && e.date.slice(0, 7) === m && exp[e.cat] !== undefined) exp[e.cat] += num(e.amt); });
-    const opex = exp['R&D'] + exp.Marketing + exp.Others;
-    return { total, byType, byCust, parts, computed, overridden, cogs, exp, opex, perRx: total ? cogs / total : 0, has: !!(total || cogs || opex) };
+    const manual = exp['R&D'] + exp.Marketing + exp.Others;
+    const cogs = rxCost + manual;
+    return { total, counts, unit, cost, computed, overridden, rxCost, exp, manual, cogs, perRx: total ? cogs / total : 0, has: !!(total || rxCost || manual) };
   }
 
   // ---- rendering ----------------------------------------------------------
-  function delta(cur, prev, lowerBetter, fmt) {
+  function delta(cur, prev, lowerBetter) {
     if (!prev) return '<div class="d">&nbsp;</div>';
     const p = ((cur - prev) / prev) * 100; if (!isFinite(p)) return '<div class="d">&nbsp;</div>';
     const bad = lowerBetter ? p > 0 : p < 0;
@@ -94,9 +109,10 @@
   function renderKpis(c, p) {
     const items = [
       ['Prescriptions', c.total.toLocaleString('en-IN'), delta(c.total, p.total)],
-      ['COGS', inr(c.cogs), delta(c.cogs, p.cogs, true) + (c.overridden ? '<div class="d">manual override</div>' : '')],
+      ['Rx cost', inr(c.rxCost), delta(c.rxCost, p.rxCost, true) + (c.overridden ? '<div class="d">manual override</div>' : '')],
+      ['Manual usage', inr(c.manual), delta(c.manual, p.manual, true)],
+      ['Total COGS', inr(c.cogs), delta(c.cogs, p.cogs, true)],
       ['COGS per Rx', inr(c.perRx), delta(c.perRx, p.perRx, true)],
-      ['R&D + Mktg + Others', inr(c.opex), delta(c.opex, p.opex, true)],
     ];
     $('kpis').innerHTML = items.map(([l, v, d]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div>${d}</div>`).join('');
   }
@@ -119,22 +135,22 @@
   function renderRx(c) {
     $('rxSub').textContent = label(cur, true);
     if (!c.total) { $('rxChart').innerHTML = '<div class="empty">No prescriptions entered for this month.</div>'; return; }
-    const cols = TYPES.map(([t, n]) => ({ label: n, segs: [{ v: c.byCust.new ? num(rec(cur).rx?.['new_' + t]) : 0, color: 'var(--c1)', name: 'New' }, { v: num(rec(cur).rx?.['refill_' + t]), color: 'var(--c3)', name: 'Refill' }] }));
-    $('rxChart').innerHTML = barSvg(480, 230, cols, (v) => v.toLocaleString('en-IN')) +
-      `<div class="legend"><span><i style="background:var(--c1)"></i>New (${c.byCust.new})</span><span><i style="background:var(--c3)"></i>Refill (${c.byCust.refill})</span></div>`;
+    const cols = PUMPS.map(([k, n]) => ({ label: n, segs: [{ v: c.counts[k], color: PCOL[k], name: n }] }));
+    $('rxChart').innerHTML = barSvg(480, 230, cols, (v) => v.toLocaleString('en-IN'));
   }
 
   function renderCost(c) {
     $('costSub').textContent = label(cur, true);
-    const pct = (v) => (c.cogs + c.opex ? ((v / (c.cogs + c.opex)) * 100).toFixed(1) + '%' : '–');
+    const pct = (v) => (c.cogs ? ((v / c.cogs) * 100).toFixed(1) + '%' : '–');
     const row = (n, v, cls) => `<tr class="${cls || ''}"><td>${n}</td><td class="n">${inr(v)}</td><td class="n">${pct(v)}</td></tr>`;
     $('costTable').innerHTML = `<tr><th>Item</th><th class="n">Amount</th><th class="n">Share</th></tr>
-      <tr class="grp"><td colspan="3">COGS ${c.overridden ? '(manual override — computed ' + inr(c.computed) + ')' : ''}</td></tr>
-      ${row('Cream ingredients', c.parts.cream)}${row('Foam ingredients', c.parts.foam)}${row('Packaging', c.parts.pack)}${row('Manual usage', c.parts.manual)}
-      ${row('COGS total', c.cogs, 'tot')}
-      <tr class="grp"><td colspan="3">Operating</td></tr>
+      <tr class="grp"><td colspan="3">Rx cost (pumps × cost per pump)</td></tr>
+      ${PUMPS.map(([k, n]) => row(`${n} · ${c.counts[k].toLocaleString('en-IN')} × ${inr(c.unit[k])}`, c.cost[k])).join('')}
+      ${row('Rx cost' + (c.overridden ? ' (manual override; computed ' + inr(c.computed) + ')' : ''), c.rxCost, 'tot')}
+      <tr class="grp"><td colspan="3">Manual usage</td></tr>
       ${CATS.map((k) => row(k, c.exp[k])).join('')}
-      ${row('Total cost', c.cogs + c.opex, 'tot')}`;
+      ${row('Manual usage', c.manual, 'tot')}
+      ${row('Total COGS', c.cogs, 'tot')}`;
   }
 
   let view = 'category';
@@ -143,18 +159,18 @@
     months.push(cur);
     const sorted = [...new Set(months)].sort().slice(-12);
     const data = sorted.map((m) => ({ m, c: calc(m) }));
-    let cols, fmt = inr, legend;
+    let cols, legend;
     if (view === 'category') {
-      cols = data.map(({ m, c }) => ({ label: label(m), sel: m === cur, segs: [{ v: c.cogs, color: COLORS.cogs, name: 'COGS' }, ...CATS.map((k) => ({ v: c.exp[k], color: COLORS[k], name: k }))] }));
-      legend = [['COGS', COLORS.cogs], ...CATS.map((k) => [k, COLORS[k]])];
+      cols = data.map(({ m, c }) => ({ label: label(m), sel: m === cur, segs: [{ v: c.rxCost, color: COLORS.rx, name: 'Rx cost' }, ...CATS.map((k) => ({ v: c.exp[k], color: COLORS[k], name: k }))] }));
+      legend = [['Rx cost', COLORS.rx], ...CATS.map((k) => [k, COLORS[k]])];
     } else if (view === 'product') {
-      cols = data.map(({ m, c }) => ({ label: label(m), sel: m === cur, segs: [{ v: c.parts.cream, color: 'var(--c1)', name: 'Cream' }, { v: c.parts.foam, color: 'var(--c2)', name: 'Foam' }, { v: c.parts.pack, color: 'var(--c3)', name: 'Packaging' }, { v: c.parts.manual, color: 'var(--c4)', name: 'Manual usage' }] }));
-      legend = [['Cream', 'var(--c1)'], ['Foam', 'var(--c2)'], ['Packaging', 'var(--c3)'], ['Manual usage', 'var(--c4)']];
+      cols = data.map(({ m, c }) => ({ label: label(m), sel: m === cur, segs: PUMPS.map(([k, n]) => ({ v: c.cost[k], color: PCOL[k], name: n })) }));
+      legend = PUMPS.map(([k, n]) => [n, PCOL[k]]);
     } else {
       cols = data.map(({ m, c }) => ({ label: label(m), sel: m === cur, segs: [{ v: c.perRx, color: 'var(--c1)', name: 'COGS per Rx' }] }));
       legend = [['COGS per Rx', 'var(--c1)']];
     }
-    $('overall').innerHTML = data.some(({ c }) => c.has) ? barSvg(Math.max(640, data.length * 90), 280, cols, fmt) : '<div class="empty">Enter figures to see the monthly cost trend.</div>';
+    $('overall').innerHTML = data.some(({ c }) => c.has) ? barSvg(Math.max(640, data.length * 90), 280, cols, inr) : '<div class="empty">Enter pump counts to see the monthly cost trend.</div>';
     $('legend').innerHTML = legend.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('');
   }
 
@@ -165,24 +181,29 @@
     if (p.has && p.perRx && c.perRx) {
       const d = c.perRx - p.perRx, pc = (d / p.perRx) * 100;
       lines.push(`COGS per Rx went <b>${d >= 0 ? 'up' : 'down'}</b> from ${inr(p.perRx)} to ${inr(c.perRx)} (${pc >= 0 ? '+' : ''}${pc.toFixed(1)}%).`);
-      const refillShare = (x) => (x.total ? (x.byCust.refill / x.total) * 100 : 0);
-      lines.push(`Refill share of Rx: ${refillShare(p).toFixed(0)}% → ${refillShare(c).toFixed(0)}%.`);
-      const comps = [['cream ingredients', 'cream'], ['foam ingredients', 'foam'], ['packaging', 'pack'], ['manual usage', 'manual']].map(([n, k]) => [n, c.parts[k] - p.parts[k]]).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+      const refillShare = (x) => (x.total ? (x.counts.refill / x.total) * 100 : 0);
+      lines.push(`Refill share of pumps: ${refillShare(p).toFixed(0)}% → ${refillShare(c).toFixed(0)}%.`);
+      const comps = [...PUMPS.map(([k, n]) => [n + ' cost', c.cost[k] - p.cost[k]]), ...CATS.map((k) => [k, c.exp[k] - p.exp[k]])].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
       if (comps[0] && comps[0][1]) lines.push(`Biggest mover in COGS: <b>${comps[0][0]}</b> (${comps[0][1] >= 0 ? '+' : '−'}${inr(Math.abs(comps[0][1]))}).`);
     } else lines.push('No previous month to compare against.');
-    if (c.overridden) lines.push(`COGS is manually fixed at ${inr(c.cogs)}; computed from components it would be ${inr(c.computed)}.`);
+    if (c.overridden) lines.push(`Rx cost is manually fixed at ${inr(c.rxCost)}; from pump counts it would be ${inr(c.computed)}.`);
     $('analysis').innerHTML = lines.map((l) => `<p>${l}</p>`).join('');
   }
 
   function renderForm() {
-    const r = rec(cur), rx = r.rx || {}, cg = r.cogs || {};
+    const r = rec(cur), pu = r.pumps || {};
     const f = (id, lbl, val, ph) => `<label class="fld"><span>${lbl}</span><input type="number" min="0" step="any" data-k="${id}" value="${val ?? ''}" placeholder="${ph || '0'}"></label>`;
     $('form').innerHTML =
-      CUST.map(([c, cn]) => `<h3>${cn} customers — Rx count</h3>` + TYPES.map(([t, tn]) => f('rx.' + c + '_' + t, tn, rx[c + '_' + t])).join('')).join('') +
-
-      '<h3>COGS (₹)</h3>' + f('cogs.cream', 'Cream ingredients', cg.cream) + f('cogs.foam', 'Foam ingredients', cg.foam) + f('cogs.pack', 'Packaging', cg.pack) + f('cogs.manual', 'Manual usage', cg.manual) +
-      f('cogs.override', 'Fix COGS manually', cg.override, 'auto') ;
+      '<h3>Pumps this month</h3>' + PUMPS.map(([k, n]) => f('pumps.' + k, n, pu[k])).join('') +
+      '<h3>Rx cost</h3>' + f('override', 'Fix Rx cost manually (₹)', r.override, 'auto');
     $('note').value = r.note || '';
+  }
+
+  // Cost per pump: saved once, applied to every month.
+  function renderUnits() {
+    const inp = (k, f) => `<input type="number" min="0" step="any" data-u="${k}.${f}" value="${state.unitCosts[k][f] ?? ''}" placeholder="0" aria-label="${k} ${f}">`;
+    $('units').innerHTML = '<tr><th>Pump type</th><th class="n">Packaging ₹</th><th class="n">API ₹</th><th class="n">Total ₹</th></tr>' +
+      PUMPS.map(([k, n]) => `<tr><td>${n}</td><td>${inp(k, 'pack')}</td><td>${inp(k, 'api')}</td><td class="n" data-tot="${k}">${inr(num(state.unitCosts[k].pack) + num(state.unitCosts[k].api))}</td></tr>`).join('');
   }
 
   function renderLedger() {
@@ -198,7 +219,7 @@
     $('month').value = cur;
     const c = calc(cur), p = calc(shift(cur, -1));
     renderKpis(c, p); renderRx(c); renderCost(c); renderOverall(); renderAnalysis(c, p); renderLedger();
-    if (!skipForm) renderForm();
+    if (!skipForm) { renderForm(); renderUnits(); }
     $('lDate').value = $('lDate').value && $('lDate').value.slice(0, 7) === cur ? $('lDate').value : cur + '-01';
   }
 
@@ -215,6 +236,14 @@
     if (path.length === 2) { r[path[0]] = r[path[0]] || {}; r[path[0]][path[1]] = v; } else r[k] = v;
     save(); render(true);
   };
+  $('units').oninput = (e) => {
+    const k = e.target.dataset.u; if (!k) return;
+    const [t, f] = k.split('.');
+    state.unitCosts[t][f] = e.target.value;
+    const cell = document.querySelector('[data-tot="' + t + '"]');
+    if (cell) cell.textContent = inr(num(state.unitCosts[t].pack) + num(state.unitCosts[t].api));
+    save(); render(true);
+  };
   $('note').oninput = (e) => { (state.months[cur] = state.months[cur] || {}).note = e.target.value; save(); };
   $('ledForm').onsubmit = (e) => {
     e.preventDefault();
@@ -226,7 +255,7 @@
   $('export').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' })); a.download = 'formial-finance.json'; a.click(); };
   $('import').onchange = (e) => {
     const f = e.target.files[0]; if (!f) return;
-    f.text().then((t) => { const d = JSON.parse(t); if (d && d.months && Array.isArray(d.ledger)) { state = d; save(); render(); } else alert('Not a Formial finance export.'); }).catch(() => alert('Could not read that file.'));
+    f.text().then((t) => { const d = JSON.parse(t); if (d && d.months && Array.isArray(d.ledger)) { state = normalize(d); save(); render(); } else alert('Not a Formial finance export.'); }).catch(() => alert('Could not read that file.'));
   };
 
   // ---- MongoDB Sync -------------------------------------------------------
@@ -245,7 +274,7 @@
       const result = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
       if (result.ok && result.data) {
-        state = result.data;
+        state = normalize(result.data);
         cache();
         render();
         if (msg) {
@@ -282,7 +311,7 @@
       if (!res.ok) return;
       const d = await res.json();
       const serverHas = d && d.months && (Object.keys(d.months).length || (d.ledger || []).length);
-      if (serverHas) { state = { months: d.months, ledger: d.ledger || [] }; cache(); }
+      if (serverHas) { state = normalize(d); cache(); }
       else if (Object.keys(state.months).length || state.ledger.length) save();
       render();
     } catch (e) {}

@@ -51,7 +51,7 @@
       <h2 class="card-title">Overall cost by month
         <span class="seg" id="viewSeg">
           <button data-v="category" class="on">By category</button>
-          <button data-v="product">COGS: cream vs foam</button>
+          <button data-v="product">Rx cost by pump type</button>
           <button data-v="perrx">Cost per Rx</button>
         </span>
       </h2>
@@ -65,6 +65,11 @@
       <label class="fld wide"><span>Note for this month (why cost moved)</span>
         <textarea id="note" rows="2" placeholder="e.g. Refills dominated the mix, so base ratio shifted; extra tretinoin batch wasted"></textarea>
       </label>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">Cost per pump <span class="sub">saved once &middot; applies to every month</span></h2>
+      <table id="units"></table>
     </section>
 
     <div class="grid2">
