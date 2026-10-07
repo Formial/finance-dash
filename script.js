@@ -15,14 +15,49 @@
   let state = { months: {}, ledger: [] };
   try { state = Object.assign(state, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
 
+  const online = window.location.protocol.startsWith('http');
+  const cache = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+
+  // Password gate: the deployed site is public, so the API answers 401 until
+  // the person has entered the dashboard password (cookie lasts 30 days).
+  let loginWait = null;
+  function askLogin() {
+    if (loginWait) return loginWait;
+    const box = $('login'), form = $('loginForm'), pw = $('loginPw'), err = $('loginErr');
+    box.hidden = false; pw.value = ''; pw.focus();
+    loginWait = new Promise((resolve) => {
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        err.textContent = '';
+        try {
+          const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw.value }) });
+          if (r.ok) { box.hidden = true; loginWait = null; resolve(true); return; }
+          err.textContent = (await r.json().catch(() => ({}))).error || 'Login failed';
+        } catch (x) { err.textContent = 'Server unreachable'; }
+        pw.select();
+      };
+    });
+    return loginWait;
+  }
+  async function api(path, opts) {
+    let res = await fetch(path, opts);
+    if (res.status === 401) { await askLogin(); res = await fetch(path, opts); }
+    return res;
+  }
+
+  // Saves are debounced: every keystroke updates the page instantly, the
+  // server copy follows once typing pauses.
+  let saveTimer = null;
   const save = () => {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
-    // Also persist to server if running
-    fetch('/api/save', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(state),
-    }).catch(() => {});
+    cache();
+    if (!online) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      try {
+        const r = await api('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state) });
+        if (!r.ok) console.warn('Save failed: HTTP ' + r.status);
+      } catch (e) { console.warn('Save failed:', e.message); }
+    }, 600);
   };
 
   const today = new Date();
@@ -209,13 +244,13 @@
     if (msg) msg.textContent = '';
 
     try {
-      if (!window.location.protocol.startsWith('http')) throw new Error('NOSERVER');
-      const res = await fetch('/api/sync', { method: 'POST' });
+      if (!online) throw new Error('NOSERVER');
+      const res = await api('/api/sync', { method: 'POST' });
       const result = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
       if (result.ok && result.data) {
         state = result.data;
-        save();
+        cache();
         render();
         if (msg) {
           msg.textContent = `Synced (${result.syncedMonths?.length || 0} mos)`;
@@ -245,13 +280,13 @@
   // browser holds data, push the browser's copy up instead of losing it.
   (async function init() {
     render();
-    if (!window.location.protocol.startsWith('http')) return;
+    if (!online) return;
     try {
-      const res = await fetch('/api/data');
+      const res = await api('/api/data');
       if (!res.ok) return;
       const d = await res.json();
       const serverHas = d && d.months && (Object.keys(d.months).length || (d.ledger || []).length);
-      if (serverHas) { state = { months: d.months, ledger: d.ledger || [] }; try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+      if (serverHas) { state = { months: d.months, ledger: d.ledger || [] }; cache(); }
       else if (Object.keys(state.months).length || state.ledger.length) save();
       render();
     } catch (e) {}

@@ -71,3 +71,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); o
 .data-bar .btn + .btn { margin-left: 6px; }
 .footer { background: var(--primary); color: var(--primary-light); font-size: 12px; padding: 12px 20px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .ovr { background: #fff7e0; }
+.login { position: fixed; inset: 0; background: rgba(5,70,96,.88); display: flex; align-items: center; justify-content: center; z-index: 10; padding: 16px; }
+.login[hidden] { display: none; }
+.login-box { background: #fff; border-radius: 10px; padding: 24px; width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 14px; }
+.login-box h2 { margin: 0; color: var(--primary); font-size: 18px; }
+.login-err { margin: 0; color: #b4531a; min-height: 1.2em; font-size: 13px; }

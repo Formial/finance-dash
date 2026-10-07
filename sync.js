@@ -1,29 +1,14 @@
 // Pulls prescriptions + stock/price data from the pharmacy MongoDB and turns
 // them into the dashboard's per-month figures. The COGS maths is the pharmacy
 // app's own engine (lib/cogs.js calcAll), so numbers match its Inventory report.
-import { MongoClient } from 'mongodb';
 import dotenv from 'dotenv';
-import dns from 'dns';
-import fs from 'fs';
-import path from 'path';
 import { fileURLToPath } from 'url';
+import path from 'path';
 import { calcAll } from './lib/cogs.js';
+import { getDb, closeDb } from './lib/mongo.js';
+import { getState, setState } from './lib/store.js';
 
 dotenv.config();
-
-try {
-  dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
-} catch (e) {}
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-// Same rule as the pharmacy app: MONGODB_DB if set, else the database named in
-// the connection string, else formial-pharmacy.
-function dbNameFor(uri) {
-  if (process.env.MONGODB_DB) return process.env.MONGODB_DB;
-  const m = uri.match(/^mongodb(?:\+srv)?:\/\/[^/]+\/([^/?]+)/);
-  return m ? decodeURIComponent(m[1]) : 'formial-pharmacy';
-}
 
 const lastDay = (m) => {
   const [y, mo] = m.split('-').map(Number);
@@ -87,28 +72,19 @@ export function computeMonths(state) {
 }
 
 export async function fetchMonthlyPrescriptionsAndCOGS() {
-  const uri = process.env.MONGODB_URI;
-  if (!uri) throw new Error('MONGODB_URI is not set in .env');
+  const db = await getDb();
+  const rows = (name) => db.collection(name).find().toArray();
+  const [meta, apis, creamBase, foamBase, packaging, manualApiUsage, manualPkgUsage, baseProductionLog] = await Promise.all([
+    db.collection('appMeta').findOne({ _id: 'dailyRxLog' }),
+    rows('apis'), rows('creamBase'), rows('foamBase'), rows('packaging'),
+    rows('manualApiUsage'), rows('manualPkgUsage'), rows('baseProductionLog'),
+  ]);
+  if (!apis.length) throw new Error(`No ingredient prices found in database "${db.databaseName}" - check MONGODB_URI / MONGODB_DB.`);
 
-  const client = new MongoClient(uri, { serverSelectionTimeoutMS: 10000 });
-  await client.connect();
-  try {
-    const db = client.db(dbNameFor(uri));
-    const rows = (name) => db.collection(name).find().toArray();
-    const [meta, apis, creamBase, foamBase, packaging, manualApiUsage, manualPkgUsage, baseProductionLog] = await Promise.all([
-      db.collection('appMeta').findOne({ _id: 'dailyRxLog' }),
-      rows('apis'), rows('creamBase'), rows('foamBase'), rows('packaging'),
-      rows('manualApiUsage'), rows('manualPkgUsage'), rows('baseProductionLog'),
-    ]);
-    if (!apis.length) throw new Error(`No ingredient prices found in database "${db.databaseName}" — check MONGODB_URI / MONGODB_DB.`);
-
-    return computeMonths({
-      dailyRxLog: meta?.value || {},
-      apis, creamBase, foamBase, packaging, manualApiUsage, manualPkgUsage, baseProductionLog,
-    });
-  } finally {
-    await client.close();
-  }
+  return computeMonths({
+    dailyRxLog: meta?.value || {},
+    apis, creamBase, foamBase, packaging, manualApiUsage, manualPkgUsage, baseProductionLog,
+  });
 }
 
 // Merge synced figures into a dashboard state, keeping revenue, notes, manual
@@ -125,15 +101,13 @@ export function mergeSynced(current, synced) {
   return current;
 }
 
-// CLI: `npm run sync` updates data.json without starting the server.
+// CLI: `npm run sync` updates the stored dashboard data without starting the server.
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const file = path.join(__dirname, 'data.json');
   fetchMonthlyPrescriptionsAndCOGS()
-    .then((data) => {
-      let current = { months: {}, ledger: [] };
-      try { current = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {}
-      fs.writeFileSync(file, JSON.stringify(mergeSynced(current, data), null, 2), 'utf8');
+    .then(async (data) => {
+      await setState(mergeSynced(await getState(), data));
       console.log('Synced months:', Object.keys(data).join(', '));
     })
-    .catch((err) => { console.error('Sync failed:', err.message); process.exit(1); });
+    .catch((err) => { console.error('Sync failed:', err.message); process.exitCode = 1; })
+    .finally(closeDb);
 }
