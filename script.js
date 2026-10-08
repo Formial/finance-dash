@@ -91,6 +91,13 @@
     let total = 0, computed = 0;
 
     ALL_PUMPS.forEach(([k]) => {
+      // Do not keep old pumps for months after August 2026
+      if (k === 'old' && m > '2026-08') {
+        counts[k] = 0;
+        unit[k] = 0;
+        cost[k] = 0;
+        return;
+      }
       counts[k] = num(pu[k]);
       total += counts[k];
       const u = state.unitCosts[k] || {};
@@ -100,7 +107,7 @@
     });
 
     // Fallback if someone entered lump-sum old costs and 0 old pump counts:
-    const hasDirectOld = !counts.old && (
+    const hasDirectOld = (m <= '2026-08') && !counts.old && (
       (r.oldPackCost !== undefined && r.oldPackCost !== null && r.oldPackCost !== '') ||
       (r.oldIngCost !== undefined && r.oldIngCost !== null && r.oldIngCost !== '')
     );
@@ -188,10 +195,7 @@
       return;
     }
     const isPreOrAug = cur <= '2026-08';
-    const activePumps = ALL_PUMPS.filter(([k]) => {
-      if (k === 'old') return isPreOrAug || c.counts[k] > 0;
-      return true;
-    });
+    const activePumps = ALL_PUMPS.filter(([k]) => k !== 'old' || isPreOrAug);
 
     const cols = activePumps.map(([k, n]) => {
       const cnt = c.counts[k] || 0;
@@ -216,10 +220,7 @@
     const row = (n, v, cls) => `<tr class="${cls || ''}"><td>${n}</td><td class="n">${inr(v)}</td></tr>`;
 
     const isPreOrAug = cur <= '2026-08';
-    const activePumps = ALL_PUMPS.filter(([k]) => {
-      if (k === 'old') return isPreOrAug || c.counts[k] > 0 || c.cost[k] > 0;
-      return true;
-    });
+    const activePumps = ALL_PUMPS.filter(([k]) => k !== 'old' || isPreOrAug);
 
     const rxRows = `
       <tr class="grp"><td colspan="2">Rx cost (pumps × cost per pump)</td></tr>
@@ -255,14 +256,20 @@
       }));
       legend = [['Rx cost', COLORS.rx], ...CATS.map((k) => [k, COLORS[k]])];
     } else {
-      cols = data.map(({ m, c }) => ({
-        label: label(m),
-        fullLabel: `${label(m, true)} (Rx Cost by Pump)`,
-        month: m,
-        sel: m === cur,
-        segs: ALL_PUMPS.map(([k, n]) => ({ v: c.cost[k], color: PCOL[k], name: n }))
-      }));
-      legend = ALL_PUMPS.map(([k, n]) => [n, PCOL[k]]);
+      cols = data.map(({ m, c }) => {
+        const isPreOrAug = m <= '2026-08';
+        const activePumps = ALL_PUMPS.filter(([k]) => k !== 'old' || isPreOrAug);
+        return {
+          label: label(m),
+          fullLabel: `${label(m, true)} (Rx Cost by Pump)`,
+          month: m,
+          sel: m === cur,
+          segs: activePumps.map(([k, n]) => ({ v: c.cost[k], color: PCOL[k], name: n }))
+        };
+      });
+      const hasOldInView = data.some(({ m }) => m <= '2026-08');
+      const legendPumps = ALL_PUMPS.filter(([k]) => k !== 'old' || hasOldInView);
+      legend = legendPumps.map(([k, n]) => [n, PCOL[k]]);
     }
     const chartEl = $('overall');
     chartEl._chartCols = cols;
@@ -282,7 +289,7 @@
     }
     const rows = data.slice().reverse().map(({ m, c }) => {
       const isSel = m === cur;
-      const packBadge = (m <= '2026-08' || c.counts.old > 0) ? '<span class="badge badge-old">Old pumps</span>' : '<span class="badge badge-new">Current pkg</span>';
+      const packBadge = m <= '2026-08' ? '<span class="badge badge-old">Old pumps</span>' : '<span class="badge badge-new">Current pkg</span>';
       return `<tr class="${isSel ? 'tot' : ''}" style="cursor:pointer;" data-selmonth="${m}">
         <td><b>${label(m, true)}</b> ${packBadge}</td>
         <td class="n">${c.total.toLocaleString('en-IN')}</td>
@@ -324,7 +331,8 @@
       if (c.total || p.total) {
         lines.push(`Refill share of pumps: ${refillShare(p).toFixed(0)}% → ${refillShare(c).toFixed(0)}%.`);
       }
-      const comps = [...ALL_PUMPS.map(([k, n]) => [n + ' cost', (c.cost[k] || 0) - (p.cost[k] || 0)]), ...CATS.map((k) => [k, (c.exp[k] || 0) - (p.exp[k] || 0)])].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+      const activePumps = ALL_PUMPS.filter(([k]) => k !== 'old' || cur <= '2026-08');
+      const comps = [...activePumps.map(([k, n]) => [n + ' cost', (c.cost[k] || 0) - (p.cost[k] || 0)]), ...CATS.map((k) => [k, (c.exp[k] || 0) - (p.exp[k] || 0)])].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
       if (comps[0] && comps[0][1]) lines.push(`Biggest mover in COGS: <b>${comps[0][0]}</b> (${comps[0][1] >= 0 ? '+' : '−'}${inr(Math.abs(comps[0][1]))}).`);
     } else {
       lines.push('No previous month to compare against.');
@@ -359,7 +367,6 @@
       `;
     } else {
       pumpsHtml = `
-        ${(pu.old ? f('pumps.old', 'Old pumps', pu.old) : '')}
         ${f('pumps.new', 'New pumps', pu.new)}
         ${f('pumps.refill', 'Refill pumps', pu.refill)}
         ${f('pumps.lotion', 'Lotion', pu.lotion)}
