@@ -9,7 +9,12 @@ export default async function handler(req, res) {
   try { body = await readJson(req); } catch (e) { return json(res, 400, { ok: false, error: e.message }); }
   if (!validShape(body)) return json(res, 400, { ok: false, error: 'Expected { months: {}, ledger: [] }' });
   try {
-    await setState({ months: body.months, ledger: body.ledger, unitCosts: body.unitCosts && typeof body.unitCosts === 'object' ? body.unitCosts : undefined });
+    await setState({
+      months: body.months,
+      ledger: body.ledger,
+      unitCosts: body.unitCosts && typeof body.unitCosts === 'object' ? body.unitCosts : undefined,
+      oldUnitCosts: body.oldUnitCosts && typeof body.oldUnitCosts === 'object' ? body.oldUnitCosts : undefined,
+    });
     json(res, 200, { ok: true });
   } catch (err) {
     console.error('save error:', err.message);
