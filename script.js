@@ -4,10 +4,15 @@
 // Ledger: R&D / Marketing / Others expenses with dates.
 (function () {
   const KEY = 'formial_finance_v1';
-  const PUMPS = [['new', 'New pumps'], ['refill', 'Refill pumps'], ['lotion', 'Lotion'], ['foam', 'Foam']];
-  const PCOL = { new: 'var(--c1)', refill: 'var(--c3)', lotion: 'var(--c2)', foam: 'var(--c4)' };
-  const DEFAULT_UNIT = { new: { pack: '', api: '' }, refill: { pack: '', api: '' }, lotion: { pack: '', api: '' }, foam: { pack: '', api: '' } };
-  const DEFAULT_OLD_UNIT = { new: { pack: '', api: '' }, refill: { pack: '', api: '' }, lotion: { pack: '', api: '' }, foam: { pack: '', api: '' } };
+  const ALL_PUMPS = [
+    ['old', 'Old pumps'],
+    ['new', 'New pumps'],
+    ['refill', 'Refill pumps'],
+    ['lotion', 'Lotion'],
+    ['foam', 'Foam']
+  ];
+  const PCOL = { old: '#64748b', new: 'var(--c1)', refill: 'var(--c3)', lotion: 'var(--c2)', foam: 'var(--c4)' };
+  const DEFAULT_UNIT = { old: { pack: '', api: '' }, new: { pack: '', api: '' }, refill: { pack: '', api: '' }, lotion: { pack: '', api: '' }, foam: { pack: '', api: '' } };
   const CATS = ['R&D', 'Marketing', 'Others'];
   const COLORS = { rx: 'var(--c1)', 'R&D': 'var(--c2)', Marketing: 'var(--c3)', Others: 'var(--c4)' };
   const $ = (id) => document.getElementById(id);
@@ -22,10 +27,7 @@
     s.ledger = Array.isArray(s.ledger) ? s.ledger : [];
     const u = s.unitCosts || {};
     s.unitCosts = {};
-    PUMPS.forEach(([k]) => { s.unitCosts[k] = Object.assign({}, DEFAULT_UNIT[k], u[k]); });
-    const ou = s.oldUnitCosts || {};
-    s.oldUnitCosts = {};
-    PUMPS.forEach(([k]) => { s.oldUnitCosts[k] = Object.assign({}, DEFAULT_OLD_UNIT[k], ou[k]); });
+    ALL_PUMPS.forEach(([k]) => { s.unitCosts[k] = Object.assign({}, DEFAULT_UNIT[k], u[k]); });
     return s;
   }
   let state = normalize({});
@@ -81,42 +83,30 @@
   const label = (m, long) => new Date(m + '-01T00:00').toLocaleString('en-IN', { month: long ? 'long' : 'short', year: long ? 'numeric' : '2-digit' });
   const rec = (m) => state.months[m] || {};
 
-  function isOldPackaging(m) {
-    const r = rec(m);
-    if (r.useOldPackaging !== undefined && r.useOldPackaging !== null) return !!r.useOldPackaging;
-    return m < '2026-08';
-  }
-
   // ---- calculations -------------------------------------------------------
-  // COGS = Rx cost (pumps x saved cost per pump OR old packaging + ing cost) + manual usage (R&D + marketing + others ledger).
+  // COGS = Rx cost (pumps x saved cost per pump) + manual usage (R&D + marketing + others ledger).
   function calc(m) {
     const r = rec(m), pu = r.pumps || {};
-    const isOld = isOldPackaging(m);
     const counts = {}, unit = {}, cost = {};
     let total = 0, computed = 0;
 
-    const hasDirectOld = isOld && (
+    ALL_PUMPS.forEach(([k]) => {
+      counts[k] = num(pu[k]);
+      total += counts[k];
+      const u = state.unitCosts[k] || {};
+      unit[k] = num(u.pack) + num(u.api);
+      cost[k] = counts[k] * unit[k];
+      computed += cost[k];
+    });
+
+    // Fallback if someone entered lump-sum old costs and 0 old pump counts:
+    const hasDirectOld = !counts.old && (
       (r.oldPackCost !== undefined && r.oldPackCost !== null && r.oldPackCost !== '') ||
       (r.oldIngCost !== undefined && r.oldIngCost !== null && r.oldIngCost !== '')
     );
-    const oldPack = hasDirectOld ? num(r.oldPackCost) : 0;
-    const oldIng = hasDirectOld ? num(r.oldIngCost) : 0;
-
-    PUMPS.forEach(([k]) => {
-      counts[k] = num(pu[k]);
-      total += counts[k];
-      const u = (isOld && state.oldUnitCosts && (state.oldUnitCosts[k]?.pack || state.oldUnitCosts[k]?.api))
-        ? state.oldUnitCosts[k]
-        : (state.unitCosts[k] || {});
-      unit[k] = num(u.pack) + num(u.api);
-      cost[k] = counts[k] * unit[k];
-      if (!hasDirectOld) {
-        computed += cost[k];
-      }
-    });
-
     if (hasDirectOld) {
-      computed = oldPack + oldIng;
+      cost.old = num(r.oldPackCost) + num(r.oldIngCost);
+      computed += cost.old;
     }
 
     const overridden = r.override !== undefined && r.override !== null && r.override !== '';
@@ -136,10 +126,6 @@
       exp,
       manual,
       cogs,
-      isOld,
-      hasDirectOld,
-      oldPack,
-      oldIng,
       has: !!(total || rxCost || manual)
     };
   }
@@ -197,15 +183,17 @@
     $('rxSub').textContent = label(cur, true);
     const chartEl = $('rxChart');
     if (!c.total) {
-      if (c.isOld && c.hasDirectOld) {
-        chartEl.innerHTML = '<div class="empty">Old packaging mode active: packaging and ingredient costs recorded directly.</div>';
-      } else {
-        chartEl.innerHTML = '<div class="empty">No prescriptions entered for this month.</div>';
-      }
+      chartEl.innerHTML = '<div class="empty">No prescriptions entered for this month.</div>';
       chartEl._chartCols = null;
       return;
     }
-    const cols = PUMPS.map(([k, n]) => {
+    const isPreOrAug = cur <= '2026-08';
+    const activePumps = ALL_PUMPS.filter(([k]) => {
+      if (k === 'old') return isPreOrAug || c.counts[k] > 0;
+      return true;
+    });
+
+    const cols = activePumps.map(([k, n]) => {
       const cnt = c.counts[k] || 0;
       const unitCost = c.unit[k] || 0;
       const totalCost = c.cost[k] || 0;
@@ -222,25 +210,21 @@
     chartEl.innerHTML = barSvg(480, 230, cols, (v) => v.toLocaleString('en-IN'));
   }
 
-  // Cost breakdown table: share % column removed, supports old packaging
+  // Cost breakdown table
   function renderCost(c) {
     $('costSub').textContent = label(cur, true);
     const row = (n, v, cls) => `<tr class="${cls || ''}"><td>${n}</td><td class="n">${inr(v)}</td></tr>`;
 
-    let rxRows = '';
-    if (c.isOld && c.hasDirectOld) {
-      rxRows = `
-        <tr class="grp"><td colspan="2">Rx cost (Old packaging &amp; ingredients)</td></tr>
-        ${row('Packaging cost (old)', c.oldPack)}
-        ${row('Ingredient cost (old)', c.oldIng)}
-      `;
-    } else {
-      const title = c.isOld ? 'Rx cost (Old packaging: pumps × cost per pump)' : 'Rx cost (pumps × cost per pump)';
-      rxRows = `
-        <tr class="grp"><td colspan="2">${title}</td></tr>
-        ${PUMPS.map(([k, n]) => row(`${n} · ${c.counts[k].toLocaleString('en-IN')} × ${inr(c.unit[k])}`, c.cost[k])).join('')}
-      `;
-    }
+    const isPreOrAug = cur <= '2026-08';
+    const activePumps = ALL_PUMPS.filter(([k]) => {
+      if (k === 'old') return isPreOrAug || c.counts[k] > 0 || c.cost[k] > 0;
+      return true;
+    });
+
+    const rxRows = `
+      <tr class="grp"><td colspan="2">Rx cost (pumps × cost per pump)</td></tr>
+      ${activePumps.map(([k, n]) => row(`${n} · ${c.counts[k].toLocaleString('en-IN')} × ${inr(c.unit[k])}`, c.cost[k])).join('')}
+    `;
 
     $('costTable').innerHTML = `<tr><th>Item</th><th class="n">Amount</th></tr>
       ${rxRows}
@@ -276,9 +260,9 @@
         fullLabel: `${label(m, true)} (Rx Cost by Pump)`,
         month: m,
         sel: m === cur,
-        segs: PUMPS.map(([k, n]) => ({ v: c.cost[k], color: PCOL[k], name: n }))
+        segs: ALL_PUMPS.map(([k, n]) => ({ v: c.cost[k], color: PCOL[k], name: n }))
       }));
-      legend = PUMPS.map(([k, n]) => [n, PCOL[k]]);
+      legend = ALL_PUMPS.map(([k, n]) => [n, PCOL[k]]);
     }
     const chartEl = $('overall');
     chartEl._chartCols = cols;
@@ -298,7 +282,7 @@
     }
     const rows = data.slice().reverse().map(({ m, c }) => {
       const isSel = m === cur;
-      const packBadge = c.isOld ? '<span class="badge badge-old">Old pkg</span>' : '<span class="badge badge-new">Current pkg</span>';
+      const packBadge = (m <= '2026-08' || c.counts.old > 0) ? '<span class="badge badge-old">Old pumps</span>' : '<span class="badge badge-new">Current pkg</span>';
       return `<tr class="${isSel ? 'tot' : ''}" style="cursor:pointer;" data-selmonth="${m}">
         <td><b>${label(m, true)}</b> ${packBadge}</td>
         <td class="n">${c.total.toLocaleString('en-IN')}</td>
@@ -340,7 +324,7 @@
       if (c.total || p.total) {
         lines.push(`Refill share of pumps: ${refillShare(p).toFixed(0)}% → ${refillShare(c).toFixed(0)}%.`);
       }
-      const comps = [...PUMPS.map(([k, n]) => [n + ' cost', (c.cost[k] || 0) - (p.cost[k] || 0)]), ...CATS.map((k) => [k, (c.exp[k] || 0) - (p.exp[k] || 0)])].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+      const comps = [...ALL_PUMPS.map(([k, n]) => [n + ' cost', (c.cost[k] || 0) - (p.cost[k] || 0)]), ...CATS.map((k) => [k, (c.exp[k] || 0) - (p.exp[k] || 0)])].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
       if (comps[0] && comps[0][1]) lines.push(`Biggest mover in COGS: <b>${comps[0][0]}</b> (${comps[0][1] >= 0 ? '+' : '−'}${inr(Math.abs(comps[0][1]))}).`);
     } else {
       lines.push('No previous month to compare against.');
@@ -355,48 +339,46 @@
     }
   }
 
-  // Monthly figures input form: supports old packaging option with packaging & ing cost
+  // Monthly figures input form: supports Old pumps for months till August
   function renderForm() {
     const r = rec(cur), pu = r.pumps || {};
-    const isOld = isOldPackaging(cur);
-    const isPreAug = cur < '2026-08';
+    const isPreOrAug = cur <= '2026-08';
     const f = (id, lbl, val, ph) => `<label class="fld"><span>${lbl}</span><input type="number" min="0" step="any" data-k="${id}" value="${val ?? ''}" placeholder="${ph || '0'}"></label>`;
 
-    const computedPreview = num(r.oldPackCost) + num(r.oldIngCost);
-    const oldHtml = `
-      <div class="old-pack-panel">
-        <div class="old-pack-header">
-          <label class="chk-label">
-            <input type="checkbox" id="oldPackToggle" ${isOld ? 'checked' : ''}>
-            <span>Old packaging mode ${isPreAug ? '(pre-Aug default)' : ''}</span>
-          </label>
-          <span class="badge ${isOld ? 'badge-old' : 'badge-new'}">${isOld ? 'Old Packaging' : 'Current Packaging'}</span>
+    let pumpsHtml = '';
+    if (isPreOrAug) {
+      pumpsHtml = `
+        <div class="fld wide" style="margin-bottom:6px;">
+          <span style="font-weight:600;color:var(--primary);font-size:12px;">Months till August: enter Old pumps count; set New &amp; Refill to 0</span>
         </div>
-        ${isOld ? `
-          <div class="old-pack-fields">
-            <label class="fld"><span>Old packaging cost (₹)</span><input type="number" min="0" step="any" data-k="oldPackCost" value="${r.oldPackCost ?? ''}" placeholder="0"></label>
-            <label class="fld"><span>Old ingredient (API) cost (₹)</span><input type="number" min="0" step="any" data-k="oldIngCost" value="${r.oldIngCost ?? ''}" placeholder="0"></label>
-          </div>
-          <div class="old-pack-hint">Enter packaging cost and ingredient cost directly, or leave blank to compute from pump counts below. Subtotal: <b>${inr(computedPreview)}</b></div>
-        ` : '<div class="old-pack-hint">August 2026 onwards uses current packaging rates. Check above to use old packaging for this month.</div>'}
-      </div>
-    `;
+        ${f('pumps.old', 'Old pumps (prescriptions)', pu.old)}
+        ${f('pumps.new', 'New pumps', pu.new)}
+        ${f('pumps.refill', 'Refill pumps', pu.refill)}
+        ${f('pumps.lotion', 'Lotion', pu.lotion)}
+        ${f('pumps.foam', 'Foam', pu.foam)}
+      `;
+    } else {
+      pumpsHtml = `
+        ${(pu.old ? f('pumps.old', 'Old pumps', pu.old) : '')}
+        ${f('pumps.new', 'New pumps', pu.new)}
+        ${f('pumps.refill', 'Refill pumps', pu.refill)}
+        ${f('pumps.lotion', 'Lotion', pu.lotion)}
+        ${f('pumps.foam', 'Foam', pu.foam)}
+      `;
+    }
 
-    $('form').innerHTML = oldHtml +
-      '<h3>Pumps this month</h3>' + PUMPS.map(([k, n]) => f('pumps.' + k, n, pu[k])).join('') +
+    $('form').innerHTML =
+      '<h3>Pumps this month</h3>' + pumpsHtml +
       '<h3>Rx cost override</h3>' + f('override', 'Fix Rx cost manually (₹)', r.override, 'auto');
     $('note').value = r.note || '';
   }
 
-  // Cost per pump: current rates + old packaging rates
+  // Cost per pump: unified table for Old pumps (till Aug) and current pump types
   function renderUnits() {
-    const inpCur = (k, f) => `<input type="number" min="0" step="any" data-u="${k}.${f}" value="${state.unitCosts[k][f] ?? ''}" placeholder="0" aria-label="${k} ${f}">`;
-    $('units').innerHTML = '<tr><th>Pump type</th><th class="n">Packaging ₹</th><th class="n">API ₹</th><th class="n">Total ₹</th></tr>' +
-      PUMPS.map(([k, n]) => `<tr><td>${n}</td><td>${inpCur(k, 'pack')}</td><td>${inpCur(k, 'api')}</td><td class="n" data-tot="${k}">${inr(num(state.unitCosts[k].pack) + num(state.unitCosts[k].api))}</td></tr>`).join('');
-
-    const inpOld = (k, f) => `<input type="number" min="0" step="any" data-ou="${k}.${f}" value="${state.oldUnitCosts[k][f] ?? ''}" placeholder="0" aria-label="old ${k} ${f}">`;
-    $('unitsOld').innerHTML = '<tr><th>Pump type</th><th class="n">Old Packaging ₹</th><th class="n">Old API / Ing ₹</th><th class="n">Total ₹</th></tr>' +
-      PUMPS.map(([k, n]) => `<tr><td>${n}</td><td>${inpOld(k, 'pack')}</td><td>${inpOld(k, 'api')}</td><td class="n" data-otot="${k}">${inr(num(state.oldUnitCosts[k].pack) + num(state.oldUnitCosts[k].api))}</td></tr>`).join('');
+    const inp = (k, f) => `<input type="number" min="0" step="any" data-u="${k}.${f}" value="${state.unitCosts[k][f] ?? ''}" placeholder="0" aria-label="${k} ${f}">`;
+    const labelFor = (k, n) => k === 'old' ? 'Old pumps (till Aug 2026)' : n;
+    $('units').innerHTML = '<tr><th>Pump type</th><th class="n">Packaging ₹</th><th class="n">API (Ing) ₹</th><th class="n">Total ₹</th></tr>' +
+      ALL_PUMPS.map(([k, n]) => `<tr><td><b>${labelFor(k, n)}</b></td><td>${inp(k, 'pack')}</td><td>${inp(k, 'api')}</td><td class="n" data-tot="${k}">${inr(num(state.unitCosts[k].pack) + num(state.unitCosts[k].api))}</td></tr>`).join('');
   }
 
   function renderLedger() {
@@ -584,15 +566,6 @@
     renderOverall();
   };
 
-  $('unitSeg').onclick = (e) => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    const uview = b.dataset.uview;
-    [...$('unitSeg').children].forEach((x) => x.classList.toggle('on', x === b));
-    $('unitCurrentBlock').hidden = uview !== 'current';
-    $('unitOldBlock').hidden = uview !== 'old';
-  };
-
   $('form').oninput = (e) => {
     const k = e.target.dataset.k;
     if (!k) return;
@@ -609,15 +582,6 @@
     render(true);
   };
 
-  $('form').onchange = (e) => {
-    if (e.target.id === 'oldPackToggle') {
-      const r = (state.months[cur] = state.months[cur] || {});
-      r.useOldPackaging = e.target.checked;
-      save();
-      render();
-    }
-  };
-
   $('units').oninput = (e) => {
     const k = e.target.dataset.u;
     if (!k) return;
@@ -625,17 +589,6 @@
     state.unitCosts[t][f] = e.target.value;
     const cell = document.querySelector('[data-tot="' + t + '"]');
     if (cell) cell.textContent = inr(num(state.unitCosts[t].pack) + num(state.unitCosts[t].api));
-    save();
-    render(true);
-  };
-
-  $('unitsOld').oninput = (e) => {
-    const k = e.target.dataset.ou;
-    if (!k) return;
-    const [t, f] = k.split('.');
-    state.oldUnitCosts[t][f] = e.target.value;
-    const cell = document.querySelector('[data-otot="' + t + '"]');
-    if (cell) cell.textContent = inr(num(state.oldUnitCosts[t].pack) + num(state.oldUnitCosts[t].api));
     save();
     render(true);
   };

@@ -241,17 +241,10 @@ table tr[data-selmonth]:hover td { background: var(--bg3); }
 input, select, textarea { font: inherit; padding: 7px 9px; border: 1px solid var(--primary-light); border-radius: 6px; color: var(--text); background: #fff; min-width: 0; width: 100%; }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
 
-/* Old Packaging Panel & Badges */
-.old-pack-panel { background: var(--bg2); border: 1px solid var(--primary-light); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; grid-column: 1 / -1; }
-.old-pack-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-.chk-label { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; color: var(--primary); font-size: 13px; }
-.chk-label input { width: auto; margin: 0; cursor: pointer; }
+/* Status Badges */
 .badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 2px 7px; border-radius: 4px; display: inline-block; vertical-align: middle; }
 .badge-old { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
 .badge-new { background: var(--bg3); color: var(--primary); border: 1px solid var(--primary-light); }
-.old-pack-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
-.old-pack-hint { font-size: 11px; color: var(--text3); margin-top: 6px; line-height: 1.4; }
-.field-hint { font-size: 12px; color: var(--text3); margin: 0 0 10px; }
 .month-note-display { font-size: 12px; color: var(--text2); background: var(--bg2); border: 1px solid var(--primary-light); border-radius: 6px; padding: 10px 12px; margin-top: 10px; line-height: 1.4; }
 
 .ledger-form { display: grid; grid-template-columns: 110px 1fr; gap: 8px; margin-bottom: 12px; }
