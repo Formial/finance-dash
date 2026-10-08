@@ -17,6 +17,7 @@
   const COLORS = { rx: 'var(--c1)', 'R&D': 'var(--c2)', Marketing: 'var(--c3)', Others: 'var(--c4)' };
   const $ = (id) => document.getElementById(id);
   const inr = (n) => '₹' + Math.round(n || 0).toLocaleString('en-IN');
+  const inrFmt = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const num = (v) => (isFinite(+v) ? +v : 0);
   const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 
@@ -28,6 +29,19 @@
     const u = s.unitCosts || {};
     s.unitCosts = {};
     ALL_PUMPS.forEach(([k]) => { s.unitCosts[k] = Object.assign({}, DEFAULT_UNIT[k], u[k]); });
+    if (s.months['2026-09'] && !s.months['2026-09'].rxReportCustom) {
+      s.months['2026-09'].rxReportCustom = {
+        count20: 472,
+        count50: 1,
+        countFoam: 8,
+        countOld: 0,
+        packCost: 101910.00,
+        apiCost: 15382.33,
+        preparedBy: 'Pharmacy Operations',
+        approvedBy: 'Saad',
+        notes: ''
+      };
+    }
     return s;
   }
   let state = normalize({});
@@ -533,12 +547,778 @@
     $('panelMonthlyFigures').classList.toggle('active', tab === 'monthly-figures');
   }
 
+  // ---- Reports & PDF Module -----------------------------------------------
+  let currentModalReport = 'consolidated';
+
+  function getMonthMeta(m) {
+    const [yStr, moStr] = m.split('-');
+    const y = parseInt(yStr, 10);
+    const mo = parseInt(moStr, 10);
+    const lastDay = new Date(y, mo, 0).getDate();
+    const dObj = new Date(y, mo - 1, 1);
+    const monthName = dObj.toLocaleString('en-IN', { month: 'long' });
+    const shortMonthName = dObj.toLocaleString('en-IN', { month: 'short' });
+    const startIso = `${m}-01`;
+    const endIso = `${m}-${String(lastDay).padStart(2, '0')}`;
+    return {
+      year: y,
+      monthNum: mo,
+      monthName,
+      shortMonthName,
+      lastDay,
+      startIso,
+      endIso,
+      periodLabel: `${monthName} ${y}`,
+      periodShort: monthName,
+      dateRangeLabel: `${startIso} to ${endIso}`,
+      generatedLabel: `Generated ${lastDay} ${shortMonthName} ${y}`
+    };
+  }
+
+  function getRxReportData(m) {
+    const r = rec(m);
+    const pu = r.pumps || {};
+    const u = state.unitCosts || {};
+    const isPreOrAug = m <= '2026-08';
+    const custom = r.rxReportCustom;
+
+    if (custom) {
+      const count20 = num(custom.count20);
+      const count50 = num(custom.count50);
+      const countFoam = num(custom.countFoam);
+      const countOld = isPreOrAug ? num(custom.countOld) : 0;
+      const totalRx = count20 + count50 + countFoam + countOld;
+      const packCost = num(custom.packCost);
+      const apiCost = num(custom.apiCost);
+      const totalCost = packCost + apiCost;
+      return {
+        isCustom: true,
+        count20,
+        count50,
+        countFoam,
+        countOld,
+        totalRx,
+        packCost,
+        apiCost,
+        totalCost,
+        preparedBy: custom.preparedBy || 'Pharmacy Operations',
+        approvedBy: custom.approvedBy || 'Saad',
+        notes: custom.notes !== undefined ? custom.notes : (r.note || '')
+      };
+    }
+
+    const countOld = isPreOrAug ? num(pu.old) : 0;
+    const count20 = num(pu.new) + num(pu.refill);
+    const count50 = num(pu.lotion);
+    const countFoam = num(pu.foam);
+    const totalRx = countOld + count20 + count50 + countFoam;
+
+    let packCost = (num(pu.new) * num(u.new?.pack)) +
+                   (num(pu.refill) * num(u.refill?.pack)) +
+                   (num(pu.lotion) * num(u.lotion?.pack)) +
+                   (num(pu.foam) * num(u.foam?.pack));
+    if (isPreOrAug && pu.old) {
+      packCost += num(pu.old) * num(u.old?.pack);
+    }
+
+    let apiCost = (num(pu.new) * num(u.new?.api)) +
+                  (num(pu.refill) * num(u.refill?.api)) +
+                  (num(pu.lotion) * num(u.lotion?.api)) +
+                  (num(pu.foam) * num(u.foam?.api));
+    if (isPreOrAug && pu.old) {
+      apiCost += num(pu.old) * num(u.old?.api);
+    }
+
+    if (isPreOrAug && !countOld && (r.oldPackCost || r.oldIngCost)) {
+      packCost += num(r.oldPackCost);
+      apiCost += num(r.oldIngCost);
+    }
+
+    let totalCost = packCost + apiCost;
+    if (r.override !== undefined && r.override !== null && r.override !== '') {
+      totalCost = num(r.override);
+    }
+
+    return {
+      isCustom: false,
+      count20,
+      count50,
+      countFoam,
+      countOld,
+      totalRx,
+      packCost,
+      apiCost,
+      totalCost,
+      preparedBy: 'Pharmacy Operations',
+      approvedBy: 'Saad',
+      notes: r.note || ''
+    };
+  }
+
+  function getManualReportData(m) {
+    const items = state.ledger.filter((e) => e.date && e.date.slice(0, 7) === m).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    const rdItems = items.filter((e) => e.cat === 'R&D');
+    const mktItems = items.filter((e) => e.cat === 'Marketing');
+    const otherItems = items.filter((e) => e.cat === 'Others');
+    const rdTotal = rdItems.reduce((s, e) => s + num(e.amt), 0);
+    const mktTotal = mktItems.reduce((s, e) => s + num(e.amt), 0);
+    const otherTotal = otherItems.reduce((s, e) => s + num(e.amt), 0);
+    const totalManual = rdTotal + mktTotal + otherTotal;
+    return { items, rdItems, mktItems, otherItems, rdTotal, mktTotal, otherTotal, totalManual };
+  }
+
+  function renderReportsHubSummary() {
+    const manData = getManualReportData(cur);
+    if ($('cardRdInfo')) {
+      $('cardRdInfo').textContent = manData.rdItems.length
+        ? `${manData.rdItems.length} entries · Total ${inrFmt(manData.rdTotal)}`
+        : `No R&D expenses recorded (${inrFmt(0)})`;
+    }
+    if ($('cardMktInfo')) {
+      $('cardMktInfo').textContent = manData.mktItems.length
+        ? `${manData.mktItems.length} entries · Total ${inrFmt(manData.mktTotal)}`
+        : `No marketing expenses recorded (${inrFmt(0)})`;
+    }
+    if ($('cardOtherInfo')) {
+      $('cardOtherInfo').textContent = manData.otherItems.length
+        ? `${manData.otherItems.length} entries · Total ${inrFmt(manData.otherTotal)}`
+        : `No miscellaneous expenses recorded (${inrFmt(0)})`;
+    }
+    if ($('rdSelCount')) $('rdSelCount').textContent = `${manData.rdItems.length} items (${inrFmt(manData.rdTotal)})`;
+    if ($('mktSelCount')) $('mktSelCount').textContent = `${manData.mktItems.length} items (${inrFmt(manData.mktTotal)})`;
+    if ($('otherSelCount')) $('otherSelCount').textContent = `${manData.otherItems.length} items (${inrFmt(manData.otherTotal)})`;
+  }
+
+  function generateReportHtml(reportType, m, liveRx) {
+    const meta = getMonthMeta(m);
+    const rxData = liveRx || getRxReportData(m);
+    const manData = getManualReportData(m);
+    const grandTotal = rxData.totalCost + manData.totalManual;
+    const isPreOrAug = m <= '2026-08';
+
+    const pct = (cnt, tot) => (tot > 0 ? ((cnt / tot) * 100).toFixed(1) : '0.0') + '%';
+    const volumeRows = [];
+    if (rxData.count20 > 0 || rxData.totalRx === 0) {
+      volumeRows.push(`<tr><td>20g Customized Cream</td><td class="num">${rxData.count20.toLocaleString('en-IN')}</td><td class="num">${pct(rxData.count20, rxData.totalRx)}</td></tr>`);
+    }
+    if (rxData.count50 > 0 || rxData.totalRx === 0) {
+      volumeRows.push(`<tr><td>50g Standard Cream</td><td class="num">${rxData.count50.toLocaleString('en-IN')}</td><td class="num">${pct(rxData.count50, rxData.totalRx)}</td></tr>`);
+    }
+    if (rxData.countFoam > 0 || rxData.totalRx === 0) {
+      volumeRows.push(`<tr><td>Foam Solution (50ml)</td><td class="num">${rxData.countFoam.toLocaleString('en-IN')}</td><td class="num">${pct(rxData.countFoam, rxData.totalRx)}</td></tr>`);
+    }
+    if (isPreOrAug && rxData.countOld > 0) {
+      volumeRows.push(`<tr><td>Old Pumps (Dispensed)</td><td class="num">${rxData.countOld.toLocaleString('en-IN')}</td><td class="num">${pct(rxData.countOld, rxData.totalRx)}</td></tr>`);
+    }
+
+    if (reportType === 'consolidated') {
+      const rxShare = grandTotal ? ((rxData.totalCost / grandTotal) * 100).toFixed(1) : '100.0';
+      let manualRows = '';
+      if (manData.rdTotal > 0) {
+        const sh = grandTotal ? ((manData.rdTotal / grandTotal) * 100).toFixed(1) : '0.0';
+        manualRows += `<tr><td>Research &amp; Development (R&amp;D)</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">${inrFmt(manData.rdTotal)}</td><td class="num">${sh}%</td></tr>`;
+      }
+      if (manData.mktTotal > 0) {
+        const sh = grandTotal ? ((manData.mktTotal / grandTotal) * 100).toFixed(1) : '0.0';
+        manualRows += `<tr><td>Marketing &amp; Growth</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">${inrFmt(manData.mktTotal)}</td><td class="num">${sh}%</td></tr>`;
+      }
+      if (manData.otherTotal > 0) {
+        const sh = grandTotal ? ((manData.otherTotal / grandTotal) * 100).toFixed(1) : '0.0';
+        manualRows += `<tr><td>Operational &amp; Other Expenses</td><td class="num">&mdash;</td><td class="num">&mdash;</td><td class="num">${inrFmt(manData.otherTotal)}</td><td class="num">${sh}%</td></tr>`;
+      }
+
+      let manualLedgerSec = '';
+      if (manData.items.length > 0) {
+        manualLedgerSec = `
+          <div class="rep-section">
+            <h3 class="rep-section-title">3. Manual Usage Ledger Summary (R&amp;D, Marketing, Others)</h3>
+            <table class="rep-table">
+              <thead>
+                <tr>
+                  <th style="text-align:left;">DATE</th>
+                  <th style="text-align:left;">COST CENTER</th>
+                  <th style="text-align:left;">DESCRIPTION / PARTICULARS</th>
+                  <th class="num">TOTAL SPEND</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${manData.items.map((e) => `<tr><td>${e.date ? e.date.slice(8) + '/' + e.date.slice(5, 7) + '/' + e.date.slice(0, 4) : '&mdash;'}</td><td>${esc(e.cat)}</td><td>${esc(e.desc)}</td><td class="num">${inrFmt(e.amt)}</td></tr>`).join('')}
+              </tbody>
+              <tfoot>
+                <tr class="rep-tot-row">
+                  <td colspan="3">TOTAL MANUAL USAGE EXPENDITURE</td>
+                  <td class="num">${inrFmt(manData.totalManual)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="rep-header">
+          <div class="rep-brand-row">
+            <div class="rep-brand-name">Formial Labs Pharmacy</div>
+            <div class="rep-date">${meta.generatedLabel}</div>
+          </div>
+          <div class="rep-brand-rule"></div>
+          <div class="rep-title">Accountant &amp; Executive Cost Summary</div>
+          <div class="rep-subtitle">Period: ${meta.periodShort}</div>
+        </div>
+
+        <div class="rep-kpi-box">
+          <div class="rep-kpi-col">
+            <div class="rep-kpi-label">TOTAL EXPENDITURE / COGS</div>
+            <div class="rep-kpi-val">${inrFmt(grandTotal)}</div>
+          </div>
+          <div class="rep-kpi-col">
+            <div class="rep-kpi-label">TOTAL PRESCRIPTIONS</div>
+            <div class="rep-kpi-val">${rxData.totalRx.toLocaleString('en-IN')}</div>
+          </div>
+        </div>
+
+        <div class="rep-section">
+          <h3 class="rep-section-title">1. Master Expenditure Breakdown</h3>
+          <table class="rep-table">
+            <thead>
+              <tr>
+                <th style="text-align:left;">COST CENTER / DEPARTMENT</th>
+                <th class="num">INGREDIENTS / APIS</th>
+                <th class="num">PACKAGING COST</th>
+                <th class="num">TOTAL SPEND</th>
+                <th class="num">SHARE</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Pharmacy Prescriptions</td>
+                <td class="num">${inrFmt(rxData.apiCost)}</td>
+                <td class="num">${inrFmt(rxData.packCost)}</td>
+                <td class="num">${inrFmt(rxData.totalCost)}</td>
+                <td class="num">${rxShare}%</td>
+              </tr>
+              ${manualRows}
+            </tbody>
+            <tfoot>
+              <tr class="rep-tot-row">
+                <td>TOTAL EXPENDITURE</td>
+                <td class="num">${inrFmt(rxData.apiCost)}</td>
+                <td class="num">${inrFmt(rxData.packCost)}</td>
+                <td class="num">${inrFmt(grandTotal)}</td>
+                <td class="num">100.0%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="rep-section">
+          <h3 class="rep-section-title">2. Prescription Volume &amp; Operations Breakdown</h3>
+          <table class="rep-table">
+            <thead>
+              <tr>
+                <th style="text-align:left;">FORMULATION / SIZE</th>
+                <th class="num">PRESCRIPTIONS</th>
+                <th class="num">VOLUME SHARE</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${volumeRows.join('')}
+            </tbody>
+            <tfoot>
+              <tr class="rep-tot-row">
+                <td>TOTAL PRESCRIPTIONS</td>
+                <td class="num">${rxData.totalRx.toLocaleString('en-IN')}</td>
+                <td class="num">100.0%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        ${manualLedgerSec}
+
+        <div class="rep-signatures">
+          <div>Prepared by: ${rxData.preparedBy}</div>
+          <div>Verified &amp; Approved by: ${rxData.approvedBy}</div>
+        </div>
+      `;
+    }
+
+    if (reportType === 'rx') {
+      const apiShare = rxData.totalCost ? ((rxData.apiCost / rxData.totalCost) * 100).toFixed(1) : '0.0';
+      const packShare = rxData.totalCost ? ((rxData.packCost / rxData.totalCost) * 100).toFixed(1) : '0.0';
+
+      return `
+        <div class="rep-header">
+          <div class="rep-brand-row">
+            <div class="rep-brand-name">Formial Labs Pharmacy</div>
+            <div class="rep-date">${meta.generatedLabel}</div>
+          </div>
+          <div class="rep-brand-rule"></div>
+          <div class="rep-title">Prescription &amp; Compounding Operations Report</div>
+          <div class="rep-subtitle">Period: ${meta.periodShort} &middot; Cost Center: Pharmacy Prescriptions</div>
+        </div>
+
+        <div class="rep-kpi-box">
+          <div class="rep-kpi-col">
+            <div class="rep-kpi-label">TOTAL RX EXPENDITURE</div>
+            <div class="rep-kpi-val">${inrFmt(rxData.totalCost)}</div>
+          </div>
+          <div class="rep-kpi-col">
+            <div class="rep-kpi-label">TOTAL PRESCRIPTIONS</div>
+            <div class="rep-kpi-val">${rxData.totalRx.toLocaleString('en-IN')}</div>
+          </div>
+        </div>
+
+        <div class="rep-section">
+          <h3 class="rep-section-title">1. Prescription Volume &amp; Dispensing Breakdown</h3>
+          <table class="rep-table">
+            <thead>
+              <tr>
+                <th style="text-align:left;">FORMULATION / SIZE</th>
+                <th class="num">PRESCRIPTIONS</th>
+                <th class="num">VOLUME SHARE</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${volumeRows.join('')}
+            </tbody>
+            <tfoot>
+              <tr class="rep-tot-row">
+                <td>TOTAL PRESCRIPTIONS</td>
+                <td class="num">${rxData.totalRx.toLocaleString('en-IN')}</td>
+                <td class="num">100.0%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="rep-section">
+          <h3 class="rep-section-title">2. Compounding Expenditure Breakdown</h3>
+          <table class="rep-table">
+            <thead>
+              <tr>
+                <th style="text-align:left;">EXPENDITURE COMPONENT</th>
+                <th class="num">TOTAL SPEND</th>
+                <th class="num">COST SHARE</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Ingredients &amp; Active Pharmaceutical Ingredients (APIs)</td>
+                <td class="num">${inrFmt(rxData.apiCost)}</td>
+                <td class="num">${apiShare}%</td>
+              </tr>
+              <tr>
+                <td>Primary &amp; Secondary Packaging Cost</td>
+                <td class="num">${inrFmt(rxData.packCost)}</td>
+                <td class="num">${packShare}%</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr class="rep-tot-row">
+                <td>TOTAL COMPOUNDING EXPENDITURE</td>
+                <td class="num">${inrFmt(rxData.totalCost)}</td>
+                <td class="num">100.0%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        ${rxData.notes ? `
+          <div class="rep-section">
+            <h3 class="rep-section-title">3. Operations &amp; Batch Notes</h3>
+            <p style="font-size:12px;color:#334155;background:#f8fafc;border:1px solid #e2e8f0;padding:10px 12px;border-radius:4px;margin:0;line-height:1.5;">${esc(rxData.notes)}</p>
+          </div>
+        ` : ''}
+
+        <div class="rep-signatures">
+          <div>Prepared by: ${rxData.preparedBy}</div>
+          <div>Verified &amp; Approved by: ${rxData.approvedBy}</div>
+        </div>
+      `;
+    }
+
+    if (reportType === 'rd') {
+      return `
+        <div class="rep-header">
+          <div class="rep-brand-row">
+            <div class="rep-brand-name">Formial Labs Pharmacy</div>
+            <div class="rep-date">${meta.generatedLabel}</div>
+          </div>
+          <div class="rep-brand-rule"></div>
+          <div class="rep-title">Research &amp; Development (R&amp;D) Cost Summary</div>
+          <div class="rep-subtitle">Period: ${meta.periodShort} &middot; Cost Center: Research &amp; Development</div>
+        </div>
+
+        <div class="rep-kpi-box">
+          <div class="rep-kpi-col">
+            <div class="rep-kpi-label">TOTAL R&amp;D EXPENDITURE</div>
+            <div class="rep-kpi-val">${inrFmt(manData.rdTotal)}</div>
+          </div>
+          <div class="rep-kpi-col">
+            <div class="rep-kpi-label">TOTAL ENTRIES / TRANSACTIONS</div>
+            <div class="rep-kpi-val">${manData.rdItems.length}</div>
+          </div>
+        </div>
+
+        <div class="rep-section">
+          <h3 class="rep-section-title">1. Itemized R&amp;D Expense Ledger</h3>
+          <table class="rep-table">
+            <thead>
+              <tr>
+                <th style="text-align:left;">DATE</th>
+                <th style="text-align:left;">COST CENTER</th>
+                <th style="text-align:left;">DESCRIPTION / PARTICULARS</th>
+                <th class="num">TOTAL SPEND</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${manData.rdItems.length ? manData.rdItems.map((e) => `
+                <tr>
+                  <td>${e.date ? e.date.slice(8) + '/' + e.date.slice(5, 7) + '/' + e.date.slice(0, 4) : '&mdash;'}</td>
+                  <td>R&amp;D</td>
+                  <td>${esc(e.desc)}</td>
+                  <td class="num">${inrFmt(e.amt)}</td>
+                </tr>
+              `).join('') : `
+                <tr>
+                  <td colspan="4" style="text-align:center;color:#64748b;padding:16px;">No R&amp;D expenses recorded for this billing cycle (${inrFmt(0)}).</td>
+                </tr>
+              `}
+            </tbody>
+            <tfoot>
+              <tr class="rep-tot-row">
+                <td colspan="3">TOTAL R&amp;D SPEND</td>
+                <td class="num">${inrFmt(manData.rdTotal)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="rep-signatures">
+          <div>Prepared by: Accounts &amp; Operations</div>
+          <div>Verified &amp; Approved by: Saad</div>
+        </div>
+      `;
+    }
+
+    if (reportType === 'mkt') {
+      return `
+        <div class="rep-header">
+          <div class="rep-brand-row">
+            <div class="rep-brand-name">Formial Labs Pharmacy</div>
+            <div class="rep-date">${meta.generatedLabel}</div>
+          </div>
+          <div class="rep-brand-rule"></div>
+          <div class="rep-title">Marketing &amp; Growth Cost Summary</div>
+          <div class="rep-subtitle">Period: ${meta.periodShort} &middot; Cost Center: Marketing</div>
+        </div>
+
+        <div class="rep-kpi-box">
+          <div class="rep-kpi-col">
+            <div class="rep-kpi-label">TOTAL MARKETING EXPENDITURE</div>
+            <div class="rep-kpi-val">${inrFmt(manData.mktTotal)}</div>
+          </div>
+          <div class="rep-kpi-col">
+            <div class="rep-kpi-label">TOTAL ENTRIES / TRANSACTIONS</div>
+            <div class="rep-kpi-val">${manData.mktItems.length}</div>
+          </div>
+        </div>
+
+        <div class="rep-section">
+          <h3 class="rep-section-title">1. Itemized Marketing Expense Ledger</h3>
+          <table class="rep-table">
+            <thead>
+              <tr>
+                <th style="text-align:left;">DATE</th>
+                <th style="text-align:left;">COST CENTER</th>
+                <th style="text-align:left;">DESCRIPTION / PARTICULARS</th>
+                <th class="num">TOTAL SPEND</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${manData.mktItems.length ? manData.mktItems.map((e) => `
+                <tr>
+                  <td>${e.date ? e.date.slice(8) + '/' + e.date.slice(5, 7) + '/' + e.date.slice(0, 4) : '&mdash;'}</td>
+                  <td>Marketing</td>
+                  <td>${esc(e.desc)}</td>
+                  <td class="num">${inrFmt(e.amt)}</td>
+                </tr>
+              `).join('') : `
+                <tr>
+                  <td colspan="4" style="text-align:center;color:#64748b;padding:16px;">No marketing expenses recorded for this billing cycle (${inrFmt(0)}).</td>
+                </tr>
+              `}
+            </tbody>
+            <tfoot>
+              <tr class="rep-tot-row">
+                <td colspan="3">TOTAL MARKETING SPEND</td>
+                <td class="num">${inrFmt(manData.mktTotal)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="rep-signatures">
+          <div>Prepared by: Accounts &amp; Operations</div>
+          <div>Verified &amp; Approved by: Saad</div>
+        </div>
+      `;
+    }
+
+    if (reportType === 'other') {
+      return `
+        <div class="rep-header">
+          <div class="rep-brand-row">
+            <div class="rep-brand-name">Formial Labs Pharmacy</div>
+            <div class="rep-date">${meta.generatedLabel}</div>
+          </div>
+          <div class="rep-brand-rule"></div>
+          <div class="rep-title">Operational &amp; Miscellaneous Cost Summary (Others)</div>
+          <div class="rep-subtitle">Period: ${meta.periodShort} &middot; Cost Center: Operational &amp; Others</div>
+        </div>
+
+        <div class="rep-kpi-box">
+          <div class="rep-kpi-col">
+            <div class="rep-kpi-label">TOTAL OTHER EXPENDITURE</div>
+            <div class="rep-kpi-val">${inrFmt(manData.otherTotal)}</div>
+          </div>
+          <div class="rep-kpi-col">
+            <div class="rep-kpi-label">TOTAL ENTRIES / TRANSACTIONS</div>
+            <div class="rep-kpi-val">${manData.otherItems.length}</div>
+          </div>
+        </div>
+
+        <div class="rep-section">
+          <h3 class="rep-section-title">1. Itemized Operational Expense Ledger</h3>
+          <table class="rep-table">
+            <thead>
+              <tr>
+                <th style="text-align:left;">DATE</th>
+                <th style="text-align:left;">COST CENTER</th>
+                <th style="text-align:left;">DESCRIPTION / PARTICULARS</th>
+                <th class="num">TOTAL SPEND</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${manData.otherItems.length ? manData.otherItems.map((e) => `
+                <tr>
+                  <td>${e.date ? e.date.slice(8) + '/' + e.date.slice(5, 7) + '/' + e.date.slice(0, 4) : '&mdash;'}</td>
+                  <td>Others</td>
+                  <td>${esc(e.desc)}</td>
+                  <td class="num">${inrFmt(e.amt)}</td>
+                </tr>
+              `).join('') : `
+                <tr>
+                  <td colspan="4" style="text-align:center;color:#64748b;padding:16px;">No miscellaneous expenses recorded for this billing cycle (${inrFmt(0)}).</td>
+                </tr>
+              `}
+            </tbody>
+            <tfoot>
+              <tr class="rep-tot-row">
+                <td colspan="3">TOTAL OTHER SPEND</td>
+                <td class="num">${inrFmt(manData.otherTotal)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="rep-signatures">
+          <div>Prepared by: Accounts &amp; Operations</div>
+          <div>Verified &amp; Approved by: Saad</div>
+        </div>
+      `;
+    }
+
+    return '';
+  }
+
+  async function downloadReportAsPdf(reportType, monthStr) {
+    const meta = getMonthMeta(monthStr);
+    let filename = '';
+    if (reportType === 'consolidated') {
+      filename = `Formial_Accounting_Summary_${meta.startIso}_to_${meta.endIso}.pdf`;
+    } else if (reportType === 'rx') {
+      filename = `Formial_Rx_Report_${monthStr}.pdf`;
+    } else if (reportType === 'rd') {
+      filename = `Formial_RD_Report_${monthStr}.pdf`;
+    } else if (reportType === 'mkt') {
+      filename = `Formial_Marketing_Report_${monthStr}.pdf`;
+    } else if (reportType === 'other') {
+      filename = `Formial_Other_Report_${monthStr}.pdf`;
+    }
+
+    setModalStatusMsg(`Generating ${filename}...`);
+
+    const liveRx = (reportType === 'rx' || rec(monthStr).rxReportCustom) ? getLiveRxEditValues() : null;
+    const htmlContent = generateReportHtml(reportType, monthStr, liveRx);
+
+    const container = document.createElement('div');
+    container.className = 'report-sheet-pdf-export';
+    container.innerHTML = htmlContent;
+    document.body.appendChild(container);
+
+    const opt = {
+      margin: [10, 10, 10, 10],
+      filename: filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        letterRendering: true,
+        backgroundColor: '#ffffff'
+      },
+      jsPDF: {
+        unit: 'mm',
+        format: 'a4',
+        orientation: 'portrait'
+      }
+    };
+
+    try {
+      if (window.html2pdf) {
+        await window.html2pdf().set(opt).from(container).save();
+        setModalStatusMsg(`Downloaded ${filename} successfully!`);
+      } else {
+        printReport(reportType, monthStr);
+        setModalStatusMsg('Opened print dialog (Save as PDF).');
+      }
+    } catch (err) {
+      console.error('PDF generation error:', err);
+      printReport(reportType, monthStr);
+      setModalStatusMsg('Fallback: opened browser print dialog.');
+    } finally {
+      container.remove();
+      setTimeout(() => setModalStatusMsg(''), 4000);
+    }
+  }
+
+  function printReport(reportType, monthStr) {
+    const liveRx = (reportType === 'rx' || rec(monthStr).rxReportCustom) ? getLiveRxEditValues() : null;
+    const htmlContent = generateReportHtml(reportType, monthStr, liveRx);
+    const printArea = $('reportPrintArea');
+    if (!printArea) return;
+    printArea.innerHTML = `<div class="report-sheet">${htmlContent}</div>`;
+    printArea.hidden = false;
+    window.print();
+    setTimeout(() => {
+      printArea.hidden = true;
+      printArea.innerHTML = '';
+    }, 1000);
+  }
+
+  async function downloadAllReports(monthStr) {
+    const types = ['consolidated', 'rx', 'rd', 'mkt', 'other'];
+    setModalStatusMsg('Starting download of all 5 reports...');
+    for (let i = 0; i < types.length; i++) {
+      const t = types[i];
+      setModalStatusMsg(`Downloading [${i + 1}/5] ${t.toUpperCase()} report...`);
+      await downloadReportAsPdf(t, monthStr);
+      await new Promise((r) => setTimeout(r, 900));
+    }
+    setModalStatusMsg('All 5 reports downloaded successfully!');
+    setTimeout(() => setModalStatusMsg(''), 4000);
+  }
+
+  function setModalStatusMsg(msg) {
+    const el = $('reportsStatusMsg');
+    if (el) el.textContent = msg || '';
+  }
+
+  function openReportsModal(reportType) {
+    currentModalReport = reportType || 'consolidated';
+    const modal = $('reportsModal');
+    if (!modal) return;
+    modal.hidden = false;
+    $('modalPeriodLabel').textContent = label(cur, true);
+
+    document.querySelectorAll('.report-sel-btn').forEach((b) => {
+      b.classList.toggle('active', b.dataset.report === currentModalReport);
+    });
+
+    populateRxEditForm();
+
+    const rxEditPanel = $('rxEditPanel');
+    if (rxEditPanel) {
+      rxEditPanel.style.display = currentModalReport === 'rx' ? 'flex' : 'none';
+    }
+
+    updateDownloadBtnLabel();
+    renderPreviewSheet();
+  }
+
+  function closeReportsModal() {
+    const modal = $('reportsModal');
+    if (modal) modal.hidden = true;
+    setModalStatusMsg('');
+  }
+
+  function updateDownloadBtnLabel() {
+    const lbl = $('btnDownloadLabel');
+    if (!lbl) return;
+    const map = {
+      consolidated: 'Download Consolidated PDF',
+      rx: 'Download Rx Report PDF',
+      rd: 'Download R&D PDF',
+      mkt: 'Download Marketing PDF',
+      other: 'Download Other PDF'
+    };
+    lbl.textContent = map[currentModalReport] || 'Download Selected PDF';
+  }
+
+  function populateRxEditForm() {
+    const rxData = getRxReportData(cur);
+    const isPreOrAug = cur <= '2026-08';
+    if ($('rxEdit20')) $('rxEdit20').value = rxData.count20;
+    if ($('rxEdit50')) $('rxEdit50').value = rxData.count50;
+    if ($('rxEditFoam')) $('rxEditFoam').value = rxData.countFoam;
+    if ($('rxEditOld')) $('rxEditOld').value = rxData.countOld;
+    if ($('rxEditOldFld')) $('rxEditOldFld').style.display = isPreOrAug ? 'flex' : 'none';
+    if ($('rxEditPack')) $('rxEditPack').value = rxData.packCost;
+    if ($('rxEditApi')) $('rxEditApi').value = rxData.apiCost;
+    if ($('rxEditPrep')) $('rxEditPrep').value = rxData.preparedBy;
+    if ($('rxEditAppr')) $('rxEditAppr').value = rxData.approvedBy;
+    if ($('rxEditNotes')) $('rxEditNotes').value = rxData.notes || '';
+  }
+
+  function getLiveRxEditValues() {
+    const isPreOrAug = cur <= '2026-08';
+    const c20 = num($('rxEdit20')?.value);
+    const c50 = num($('rxEdit50')?.value);
+    const cFoam = num($('rxEditFoam')?.value);
+    const cOld = isPreOrAug ? num($('rxEditOld')?.value) : 0;
+    const pCost = num($('rxEditPack')?.value);
+    const aCost = num($('rxEditApi')?.value);
+    return {
+      isCustom: true,
+      count20: c20,
+      count50: c50,
+      countFoam: cFoam,
+      countOld: cOld,
+      totalRx: c20 + c50 + cFoam + cOld,
+      packCost: pCost,
+      apiCost: aCost,
+      totalCost: pCost + aCost,
+      preparedBy: $('rxEditPrep')?.value || 'Pharmacy Operations',
+      approvedBy: $('rxEditAppr')?.value || 'Saad',
+      notes: $('rxEditNotes')?.value || ''
+    };
+  }
+
+  function renderPreviewSheet() {
+    const sheet = $('reportPreviewSheet');
+    if (!sheet) return;
+    const liveRx = (currentModalReport === 'rx' || rec(cur).rxReportCustom) ? getLiveRxEditValues() : null;
+    sheet.innerHTML = generateReportHtml(currentModalReport, cur, liveRx);
+  }
+
   function render(skipForm) {
     $('month').value = cur;
     const moText = label(cur, true);
     if ($('statsMonthLabel')) $('statsMonthLabel').textContent = moText;
     if ($('figuresMonthLabel')) $('figuresMonthLabel').textContent = moText;
     if ($('figSub')) $('figSub').textContent = moText;
+    if ($('reportsSub')) $('reportsSub').textContent = moText;
 
     const c = calc(cur), p = calc(shift(cur, -1));
     renderKpis(c, p);
@@ -547,11 +1327,18 @@
     renderOverall();
     renderAnalysis(c, p);
     renderLedger();
+    renderReportsHubSummary();
     if (!skipForm) {
       renderForm();
       renderUnits();
     }
     $('lDate').value = $('lDate').value && $('lDate').value.slice(0, 7) === cur ? $('lDate').value : cur + '-01';
+
+    if ($('reportsModal') && !$('reportsModal').hidden) {
+      $('modalPeriodLabel').textContent = moText;
+      populateRxEditForm();
+      renderPreviewSheet();
+    }
   }
 
   // ---- events -------------------------------------------------------------
@@ -706,6 +1493,99 @@
       $('overall').classList.remove('has-legend-hover');
       $('overall').querySelectorAll('.seg-rect').forEach((r) => r.classList.remove('seg-dimmed'));
     });
+  }
+
+  // ---- Reports UI & Modal Events ------------------------------------------
+  if ($('openReportsBtn')) $('openReportsBtn').onclick = () => openReportsModal('consolidated');
+  if ($('hubOpenModal')) $('hubOpenModal').onclick = () => openReportsModal('consolidated');
+  if ($('hubDownloadAll')) $('hubDownloadAll').onclick = () => downloadAllReports(cur);
+
+  // Card click delegation in panelMonthlyStats
+  document.querySelectorAll('.reports-cards-grid .report-box').forEach((card) => {
+    card.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const act = btn.dataset.action;
+      const rtype = btn.dataset.rtype || card.dataset.rtype;
+      if (act === 'download') {
+        downloadReportAsPdf(rtype, cur);
+      } else if (act === 'preview') {
+        openReportsModal(rtype);
+      } else if (act === 'edit-rx') {
+        openReportsModal('rx');
+      }
+    });
+  });
+
+  // Modal report switcher
+  if ($('reportSelectorList')) {
+    $('reportSelectorList').addEventListener('click', (e) => {
+      const btn = e.target.closest('.report-sel-btn');
+      if (!btn) return;
+      document.querySelectorAll('.report-sel-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentModalReport = btn.dataset.report;
+      const rxPanel = $('rxEditPanel');
+      if (rxPanel) rxPanel.style.display = currentModalReport === 'rx' ? 'flex' : 'none';
+      updateDownloadBtnLabel();
+      renderPreviewSheet();
+    });
+  }
+
+  // Modal close & print & download actions
+  if ($('closeReportsModal')) $('closeReportsModal').onclick = closeReportsModal;
+  if ($('reportsModal')) {
+    $('reportsModal').onclick = (e) => {
+      if (e.target === $('reportsModal')) closeReportsModal();
+    };
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $('reportsModal') && !$('reportsModal').hidden) {
+      closeReportsModal();
+    }
+  });
+
+  if ($('btnDownloadCurrentPdf')) {
+    $('btnDownloadCurrentPdf').onclick = () => downloadReportAsPdf(currentModalReport, cur);
+  }
+  if ($('btnPrintCurrentPdf')) {
+    $('btnPrintCurrentPdf').onclick = () => printReport(currentModalReport, cur);
+  }
+  if ($('btnDownloadAllPdf')) {
+    $('btnDownloadAllPdf').onclick = () => downloadAllReports(cur);
+  }
+
+  // Live input events on Rx edit form
+  ['rxEdit20', 'rxEdit50', 'rxEditFoam', 'rxEditOld', 'rxEditPack', 'rxEditApi', 'rxEditPrep', 'rxEditAppr', 'rxEditNotes'].forEach((id) => {
+    const el = $(id);
+    if (el) el.addEventListener('input', () => { renderPreviewSheet(); });
+  });
+
+  if ($('rxSaveCustom')) {
+    $('rxSaveCustom').onclick = () => {
+      const vals = getLiveRxEditValues();
+      state.months[cur] = state.months[cur] || {};
+      state.months[cur].rxReportCustom = vals;
+      save();
+      render(true);
+      renderPreviewSheet();
+      setModalStatusMsg('Rx figures saved! Preview and reports updated.');
+      setTimeout(() => setModalStatusMsg(''), 4000);
+    };
+  }
+
+  if ($('rxResetCustom')) {
+    $('rxResetCustom').onclick = () => {
+      if (state.months[cur] && state.months[cur].rxReportCustom) {
+        delete state.months[cur].rxReportCustom;
+        save();
+        render(true);
+      }
+      populateRxEditForm();
+      renderPreviewSheet();
+      setModalStatusMsg('Reset to calculated defaults.');
+      setTimeout(() => setModalStatusMsg(''), 4000);
+    };
   }
 
   window.addEventListener('scroll', hideTooltip, { passive: true });

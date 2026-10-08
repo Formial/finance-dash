@@ -19,6 +19,10 @@
       <button class="icon-btn" id="prev" aria-label="Previous month">&lsaquo;</button>
       <input type="month" id="month" aria-label="Month">
       <button class="icon-btn" id="next" aria-label="Next month">&rsaquo;</button>
+      <button class="btn-reports" id="openReportsBtn" title="Generate &amp; Download PDF Reports">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        <span>PDF Reports</span>
+      </button>
       <button class="icon-btn btn-sync" id="syncBtn" title="Sync from MongoDB" aria-label="Sync from MongoDB">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/></svg>
         <span class="btn-label">Sync</span>
@@ -121,6 +125,77 @@
           <h2 class="card-title">R&amp;D, marketing &amp; others <span class="sub" id="ledStatsSub"></span></h2>
           <table id="ledgerStats"></table>
         </section>
+
+        <section class="card reports-hub-card">
+          <div class="reports-hub-head">
+            <div>
+              <h2 class="card-title">Monthly Reports &amp; PDF Export <span class="sub" id="reportsSub"></span></h2>
+              <p class="reports-hub-desc">Download separate reports for Rx, R&amp;D, Marketing, and Others, or download the master Consolidated summary.</p>
+            </div>
+            <div class="reports-hub-actions">
+              <button class="btn btn-primary" id="hubDownloadAll">Download All 5 PDFs</button>
+              <button class="btn ghost" id="hubOpenModal">Open Reports Hub</button>
+            </div>
+          </div>
+          <div class="reports-cards-grid">
+            <div class="report-box" data-rtype="consolidated">
+              <div class="report-box-top">
+                <span class="report-box-badge">Executive</span>
+                <h3 class="report-box-title">Consolidated Report</h3>
+                <p class="report-box-info">Master accounting summary combining Prescriptions &amp; Manual usage (R&amp;D, Marketing, Others).</p>
+              </div>
+              <div class="report-box-footer">
+                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="consolidated">Download PDF</button>
+                <button class="btn btn-sm ghost" data-action="preview" data-rtype="consolidated">Preview</button>
+              </div>
+            </div>
+            <div class="report-box" data-rtype="rx">
+              <div class="report-box-top">
+                <span class="report-box-badge">Compounding</span>
+                <h3 class="report-box-title">Rx Operations Report</h3>
+                <p class="report-box-info">Prescription volume, compounding packaging, and API cost breakdown. Includes option to edit.</p>
+              </div>
+              <div class="report-box-footer">
+                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="rx">Download PDF</button>
+                <button class="btn btn-sm" data-action="edit-rx" data-rtype="rx">Edit Figures</button>
+                <button class="btn btn-sm ghost" data-action="preview" data-rtype="rx">Preview</button>
+              </div>
+            </div>
+            <div class="report-box" data-rtype="rd">
+              <div class="report-box-top">
+                <span class="report-box-badge">Manual usage</span>
+                <h3 class="report-box-title">R&amp;D Expense Report</h3>
+                <p class="report-box-info" id="cardRdInfo">Itemized ledger of Research &amp; Development expenditures.</p>
+              </div>
+              <div class="report-box-footer">
+                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="rd">Download PDF</button>
+                <button class="btn btn-sm ghost" data-action="preview" data-rtype="rd">Preview</button>
+              </div>
+            </div>
+            <div class="report-box" data-rtype="mkt">
+              <div class="report-box-top">
+                <span class="report-box-badge">Manual usage</span>
+                <h3 class="report-box-title">Marketing Expense Report</h3>
+                <p class="report-box-info" id="cardMktInfo">Itemized ledger of Marketing &amp; Growth expenditures.</p>
+              </div>
+              <div class="report-box-footer">
+                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="mkt">Download PDF</button>
+                <button class="btn btn-sm ghost" data-action="preview" data-rtype="mkt">Preview</button>
+              </div>
+            </div>
+            <div class="report-box" data-rtype="other">
+              <div class="report-box-top">
+                <span class="report-box-badge">Manual usage</span>
+                <h3 class="report-box-title">Other Expense Report</h3>
+                <p class="report-box-info" id="cardOtherInfo">Itemized ledger of Operational &amp; General expenditures.</p>
+              </div>
+              <div class="report-box-footer">
+                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="other">Download PDF</button>
+                <button class="btn btn-sm ghost" data-action="preview" data-rtype="other">Preview</button>
+              </div>
+            </div>
+          </div>
+        </section>
       </section>
 
       <!-- 3. Monthly figures view -->
@@ -170,6 +245,106 @@
 
   <div id="chartTooltip" class="chart-tooltip" hidden></div>
   <footer class="footer"><span>Formial Labs Pharmacy &bull; Bengaluru</span><span>formial.in</span><span>No. 181, K. B. A. R Road, Austin Town, Bengaluru &ndash; 560047</span></footer>
+
+  <!-- Reports & PDF Export Modal -->
+  <div class="modal-overlay" id="reportsModal" hidden>
+    <div class="modal-box modal-reports">
+      <div class="modal-head">
+        <div class="modal-title-group">
+          <h2 class="modal-title">Formial Reports &amp; PDF Export</h2>
+          <span class="modal-subtitle" id="modalPeriodLabel"></span>
+        </div>
+        <div class="modal-actions-right">
+          <button class="modal-close" id="closeReportsModal" aria-label="Close modal">&times;</button>
+        </div>
+      </div>
+      <div class="reports-modal-body">
+        <div class="reports-ctrl-sidebar">
+          <div class="report-selector-list" id="reportSelectorList">
+            <button class="report-sel-btn active" data-report="consolidated">
+              <span class="report-sel-name">Consolidated Summary</span>
+              <span class="report-sel-desc">Prescriptions + All Manual Usage</span>
+            </button>
+            <button class="report-sel-btn" data-report="rx">
+              <span class="report-sel-name">Rx Operations Report</span>
+              <span class="report-sel-desc">Compounding &amp; Packaging (Editable)</span>
+            </button>
+            <button class="report-sel-btn" data-report="rd">
+              <span class="report-sel-name">R&amp;D Expense Report</span>
+              <span class="report-sel-desc" id="rdSelCount">Itemized ledger</span>
+            </button>
+            <button class="report-sel-btn" data-report="mkt">
+              <span class="report-sel-name">Marketing Expense Report</span>
+              <span class="report-sel-desc" id="mktSelCount">Itemized ledger</span>
+            </button>
+            <button class="report-sel-btn" data-report="other">
+              <span class="report-sel-name">Other Expense Report</span>
+              <span class="report-sel-desc" id="otherSelCount">Itemized ledger</span>
+            </button>
+          </div>
+
+          <!-- Rx Edit panel (displayed when Rx report is selected) -->
+          <div class="rx-edit-panel" id="rxEditPanel" style="display:none;">
+            <div class="rx-edit-head">
+              <h3 class="rx-edit-title">Edit Rx Report Figures</h3>
+              <span class="rx-edit-sub">Customize values before exporting PDF</span>
+            </div>
+            <div class="rx-edit-fields">
+              <div class="rx-edit-grid">
+                <label class="fld"><span>20g Customized Cream</span><input type="number" id="rxEdit20" min="0"></label>
+                <label class="fld"><span>50g Standard Cream</span><input type="number" id="rxEdit50" min="0"></label>
+              </div>
+              <div class="rx-edit-grid">
+                <label class="fld"><span>Foam Solution (50ml)</span><input type="number" id="rxEditFoam" min="0"></label>
+                <label class="fld" id="rxEditOldFld"><span>Old Pumps</span><input type="number" id="rxEditOld" min="0"></label>
+              </div>
+              <div class="rx-edit-grid">
+                <label class="fld"><span>Packaging Cost (₹)</span><input type="number" id="rxEditPack" min="0" step="0.01"></label>
+                <label class="fld"><span>Ingredients / APIs (₹)</span><input type="number" id="rxEditApi" min="0" step="0.01"></label>
+              </div>
+              <div class="rx-edit-grid">
+                <label class="fld"><span>Prepared By</span><input type="text" id="rxEditPrep" value="Pharmacy Operations"></label>
+                <label class="fld"><span>Verified &amp; Approved By</span><input type="text" id="rxEditAppr" value="Saad"></label>
+              </div>
+              <label class="fld wide"><span>Batch / Operations Notes</span><textarea id="rxEditNotes" rows="2" placeholder="e.g. Batch adjustments, cream formulation notes..."></textarea></label>
+              <div class="rx-edit-actions">
+                <button class="btn btn-sm btn-primary" id="rxSaveCustom">Save Changes</button>
+                <button class="btn btn-sm ghost" id="rxResetCustom">Reset to Defaults</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="reports-main-actions">
+            <button class="btn btn-primary btn-block" id="btnDownloadCurrentPdf">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span id="btnDownloadLabel">Download Selected PDF</span>
+            </button>
+            <button class="btn btn-block" id="btnPrintCurrentPdf">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              <span>Print / Save as PDF</span>
+            </button>
+            <button class="btn ghost btn-block" id="btnDownloadAllPdf">
+              <span>Download All 5 Reports</span>
+            </button>
+            <div class="reports-status-msg" id="reportsStatusMsg"></div>
+          </div>
+        </div>
+
+        <div class="reports-preview-container">
+          <div class="preview-toolbar">
+            <span class="preview-badge">Document Preview &middot; Exact Layout Exported</span>
+            <span class="preview-scale-note" id="previewScaleNote">A4 Format &middot; Formial Labs Pharmacy</span>
+          </div>
+          <div class="preview-sheet-wrapper">
+            <div class="report-sheet" id="reportPreviewSheet"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="reportPrintArea" hidden></div>
+  <script src="html2pdf.bundle.min.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

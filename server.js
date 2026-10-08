@@ -16,6 +16,7 @@ const STATIC = {
   '/index.html': ['index.html', 'text/html; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
   '/script.js': ['script.js', 'application/javascript; charset=utf-8'],
+  '/html2pdf.bundle.min.js': ['html2pdf.bundle.min.js', 'application/javascript; charset=utf-8'],
 };
 const API = ['status', 'login', 'data', 'save', 'sync'];
 
