@@ -380,12 +380,13 @@
     $('note').value = r.note || '';
   }
 
-  // Cost per pump: unified table for Old pumps (till Aug) and current pump types
+  // Cost per pump: shows Old pumps only for months till August 2026
   function renderUnits() {
+    const isPreOrAug = cur <= '2026-08';
+    const activePumps = ALL_PUMPS.filter(([k]) => k !== 'old' || isPreOrAug);
     const inp = (k, f) => `<input type="number" min="0" step="any" data-u="${k}.${f}" value="${state.unitCosts[k][f] ?? ''}" placeholder="0" aria-label="${k} ${f}">`;
-    const labelFor = (k, n) => k === 'old' ? 'Old pumps (till Aug 2026)' : n;
     $('units').innerHTML = '<tr><th>Pump type</th><th class="n">Packaging ₹</th><th class="n">API (Ing) ₹</th><th class="n">Total ₹</th></tr>' +
-      ALL_PUMPS.map(([k, n]) => `<tr><td><b>${labelFor(k, n)}</b></td><td>${inp(k, 'pack')}</td><td>${inp(k, 'api')}</td><td class="n" data-tot="${k}">${inr(num(state.unitCosts[k].pack) + num(state.unitCosts[k].api))}</td></tr>`).join('');
+      activePumps.map(([k, n]) => `<tr><td><b>${n}</b></td><td>${inp(k, 'pack')}</td><td>${inp(k, 'api')}</td><td class="n" data-tot="${k}">${inr(num(state.unitCosts[k].pack) + num(state.unitCosts[k].api))}</td></tr>`).join('');
   }
 
   function renderLedger() {
