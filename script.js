@@ -329,36 +329,12 @@
     });
   }
 
-  // Cost analysis: COGS per Rx comparisons removed
-  function renderAnalysis(c, p) {
-    $('anaSub').textContent = label(cur, true) + ' vs ' + label(shift(cur, -1), true);
-    if (!c.has) { $('analysis').innerHTML = '<div class="empty">No data for this month yet.</div>'; return; }
-    const lines = [];
-    if (p.has) {
-      const d = c.cogs - p.cogs, pc = p.cogs ? (d / p.cogs) * 100 : 0;
-      lines.push(`Total COGS went <b>${d >= 0 ? 'up' : 'down'}</b> from ${inr(p.cogs)} to ${inr(c.cogs)} (${pc >= 0 ? '+' : ''}${pc.toFixed(1)}%).`);
-      if (p.rxCost || c.rxCost) {
-        const rd = c.rxCost - p.rxCost;
-        lines.push(`Rx cost changed by <b>${rd >= 0 ? '+' : '−'}${inr(Math.abs(rd))}</b> (${inr(p.rxCost)} → ${inr(c.rxCost)}).`);
-      }
-      const refillShare = (x) => (x.total ? (x.counts.refill / x.total) * 100 : 0);
-      if (c.total || p.total) {
-        lines.push(`Refill share of pumps: ${refillShare(p).toFixed(0)}% → ${refillShare(c).toFixed(0)}%.`);
-      }
-      const activePumps = ALL_PUMPS.filter(([k]) => k !== 'old' || cur <= '2026-08');
-      const comps = [...activePumps.map(([k, n]) => [n + ' cost', (c.cost[k] || 0) - (p.cost[k] || 0)]), ...CATS.map((k) => [k, (c.exp[k] || 0) - (p.exp[k] || 0)])].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-      if (comps[0] && comps[0][1]) lines.push(`Biggest mover in COGS: <b>${comps[0][0]}</b> (${comps[0][1] >= 0 ? '+' : '−'}${inr(Math.abs(comps[0][1]))}).`);
-    } else {
-      lines.push('No previous month to compare against.');
-    }
-    if (c.overridden) lines.push(`Rx cost is manually fixed at ${inr(c.rxCost)}; from pump counts it would be ${inr(c.computed)}.`);
-    $('analysis').innerHTML = lines.map((l) => `<p>${l}</p>`).join('');
-
-    const r = rec(cur);
-    const noteEl = $('noteDisplay');
-    if (noteEl) {
-      noteEl.innerHTML = r.note ? `<b>Note for ${label(cur, true)}:</b> ${esc(r.note)}` : '<i>No note entered for this month.</i>';
-    }
+  // Month note (shown only when one was entered)
+  function renderNote() {
+    const r = rec(cur), noteEl = $('noteDisplay'), card = $('noteCard');
+    if (!noteEl || !card) return;
+    card.hidden = !r.note;
+    noteEl.innerHTML = r.note ? `<b>Note for ${label(cur, true)}:</b> ${esc(r.note)}` : '';
   }
 
   // Monthly figures input form: supports Old pumps for months till August
@@ -1325,7 +1301,7 @@
     renderRx(c);
     renderCost(c);
     renderOverall();
-    renderAnalysis(c, p);
+    renderNote();
     renderLedger();
     renderReportsHubSummary();
     if (!skipForm) {
@@ -1496,8 +1472,6 @@
   }
 
   // ---- Reports UI & Modal Events ------------------------------------------
-  if ($('openReportsBtn')) $('openReportsBtn').onclick = () => openReportsModal('consolidated');
-  if ($('hubOpenModal')) $('hubOpenModal').onclick = () => openReportsModal('consolidated');
   if ($('hubDownloadAll')) $('hubDownloadAll').onclick = () => downloadAllReports(cur);
 
   // Card click delegation in panelMonthlyStats

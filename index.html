@@ -15,10 +15,6 @@
       <button class="icon-btn" id="prev" aria-label="Previous month">&lsaquo;</button>
       <input type="month" id="month" aria-label="Month">
       <button class="icon-btn" id="next" aria-label="Next month">&rsaquo;</button>
-      <button class="btn-reports" id="openReportsBtn" title="Generate &amp; Download PDF Reports">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        <span>PDF Reports</span>
-      </button>
       <button class="icon-btn btn-sync" id="syncBtn" title="Sync from MongoDB" aria-label="Sync from MongoDB">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/></svg>
         <span class="btn-label">Sync</span>
@@ -111,9 +107,7 @@
           </section>
         </div>
 
-        <section class="card">
-          <h2 class="card-title">Cost movement / analysis <span class="sub" id="anaSub"></span></h2>
-          <div id="analysis" class="analysis"></div>
+        <section class="card" id="noteCard" hidden>
           <div class="month-note-display" id="noteDisplay"></div>
         </section>
 
@@ -123,74 +117,51 @@
         </section>
 
         <section class="card reports-hub-card">
-          <div class="reports-hub-head">
-            <div>
-              <h2 class="card-title">Monthly Reports &amp; PDF Export <span class="sub" id="reportsSub"></span></h2>
-              <p class="reports-hub-desc">Download separate reports for Rx, R&amp;D, Marketing, and Others, or download the master Consolidated summary.</p>
-            </div>
-            <div class="reports-hub-actions">
-              <button class="btn btn-primary" id="hubDownloadAll">Download All 5 PDFs</button>
-              <button class="btn ghost" id="hubOpenModal">Open Reports Hub</button>
-            </div>
-          </div>
+          <h2 class="card-title"><span>Reports</span> <span class="sub" id="reportsSub"></span></h2>
           <div class="reports-cards-grid">
             <div class="report-box" data-rtype="consolidated">
-              <div class="report-box-top">
-                <span class="report-box-badge">Executive</span>
-                <h3 class="report-box-title">Consolidated Report</h3>
-                <p class="report-box-info">Master accounting summary combining Prescriptions &amp; Manual usage (R&amp;D, Marketing, Others).</p>
-              </div>
-              <div class="report-box-footer">
-                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="consolidated">Download PDF</button>
+              <span class="rb-title">Consolidated</span>
+              <span class="rb-info">Rx + R&amp;D + Marketing + Others</span>
+              <span class="rb-actions">
+                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="consolidated">Download</button>
                 <button class="btn btn-sm ghost" data-action="preview" data-rtype="consolidated">Preview</button>
-              </div>
+              </span>
             </div>
             <div class="report-box" data-rtype="rx">
-              <div class="report-box-top">
-                <span class="report-box-badge">Compounding</span>
-                <h3 class="report-box-title">Rx Operations Report</h3>
-                <p class="report-box-info">Prescription volume, compounding packaging, and API cost breakdown. Includes option to edit.</p>
-              </div>
-              <div class="report-box-footer">
-                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="rx">Download PDF</button>
-                <button class="btn btn-sm" data-action="edit-rx" data-rtype="rx">Edit Figures</button>
+              <span class="rb-title">Rx operations</span>
+              <span class="rb-info">Pumps, packaging &amp; ingredients</span>
+              <span class="rb-actions">
+                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="rx">Download</button>
+                <button class="btn btn-sm" data-action="edit-rx" data-rtype="rx">Edit</button>
                 <button class="btn btn-sm ghost" data-action="preview" data-rtype="rx">Preview</button>
-              </div>
+              </span>
             </div>
             <div class="report-box" data-rtype="rd">
-              <div class="report-box-top">
-                <span class="report-box-badge">Manual usage</span>
-                <h3 class="report-box-title">R&amp;D Expense Report</h3>
-                <p class="report-box-info" id="cardRdInfo">Itemized ledger of Research &amp; Development expenditures.</p>
-              </div>
-              <div class="report-box-footer">
-                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="rd">Download PDF</button>
+              <span class="rb-title">R&amp;D</span>
+              <span class="rb-info" id="cardRdInfo"></span>
+              <span class="rb-actions">
+                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="rd">Download</button>
                 <button class="btn btn-sm ghost" data-action="preview" data-rtype="rd">Preview</button>
-              </div>
+              </span>
             </div>
             <div class="report-box" data-rtype="mkt">
-              <div class="report-box-top">
-                <span class="report-box-badge">Manual usage</span>
-                <h3 class="report-box-title">Marketing Expense Report</h3>
-                <p class="report-box-info" id="cardMktInfo">Itemized ledger of Marketing &amp; Growth expenditures.</p>
-              </div>
-              <div class="report-box-footer">
-                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="mkt">Download PDF</button>
+              <span class="rb-title">Marketing</span>
+              <span class="rb-info" id="cardMktInfo"></span>
+              <span class="rb-actions">
+                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="mkt">Download</button>
                 <button class="btn btn-sm ghost" data-action="preview" data-rtype="mkt">Preview</button>
-              </div>
+              </span>
             </div>
             <div class="report-box" data-rtype="other">
-              <div class="report-box-top">
-                <span class="report-box-badge">Manual usage</span>
-                <h3 class="report-box-title">Other Expense Report</h3>
-                <p class="report-box-info" id="cardOtherInfo">Itemized ledger of Operational &amp; General expenditures.</p>
-              </div>
-              <div class="report-box-footer">
-                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="other">Download PDF</button>
+              <span class="rb-title">Others</span>
+              <span class="rb-info" id="cardOtherInfo"></span>
+              <span class="rb-actions">
+                <button class="btn btn-sm btn-primary" data-action="download" data-rtype="other">Download</button>
                 <button class="btn btn-sm ghost" data-action="preview" data-rtype="other">Preview</button>
-              </div>
+              </span>
             </div>
           </div>
+          <div class="reports-foot"><button class="btn ghost btn-sm" id="hubDownloadAll">Download all 5 PDFs</button></div>
         </section>
       </section>
 

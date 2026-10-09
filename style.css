@@ -839,3 +839,15 @@ tr.grp td { background: var(--bg2); color: var(--text); }
 .month-ctl input { font-size: 13px; padding: 5px 10px; }
 .view-title { font-size: 19px; }
 .chart .val { font-size: 11px; }
+
+/* Reports: one line per report */
+.reports-cards-grid { display: flex; flex-direction: column; }
+.report-box { display: flex; align-items: center; gap: 12px; padding: 9px 0; border: 0; border-bottom: 1px solid #e7eaf0; border-radius: 0; background: none; box-shadow: none; transform: none; }
+.report-box:last-child { border-bottom: 0; }
+.rb-title { font-weight: 600; width: 160px; flex: none; }
+.rb-info { color: var(--text3); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rb-actions { display: flex; gap: 6px; flex: none; }
+.reports-foot { margin-top: 12px; display: flex; justify-content: flex-end; }
+@media (max-width: 700px) { .report-box { flex-wrap: wrap; } .rb-info { flex-basis: 100%; order: 3; } }
+.report-box:hover { border-color: transparent; border-bottom-color: #e7eaf0; box-shadow: none; transform: none; }
+.report-box { flex-direction: row; justify-content: flex-start; }
