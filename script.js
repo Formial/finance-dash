@@ -174,7 +174,7 @@
     const pad = { l: 8, r: 8, t: 20, b: 26 }, iw = w - pad.l - pad.r, ih = h - pad.t - pad.b;
     const max = Math.max(1, ...cols.map((c) => c.segs.reduce((s, x) => s + x.v, 0)));
     const bw = Math.min(56, (iw / cols.length) * 0.6), step = iw / cols.length;
-    let out = `<svg viewBox="0 0 ${w} ${h}" role="img"><line x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + ih}" y2="${pad.t + ih}" stroke="#BFE6FF"/>`;
+    let out = `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img"><line x1="${pad.l}" x2="${w - pad.r}" y1="${pad.t + ih}" y2="${pad.t + ih}" stroke="#BFE6FF"/>`;
     cols.forEach((c, i) => {
       const x = pad.l + step * i + (step - bw) / 2;
       let y = pad.t + ih;
@@ -288,7 +288,7 @@
     const chartEl = $('overall');
     chartEl._chartCols = cols;
     chartEl._fmtVal = inr;
-    chartEl.innerHTML = data.some(({ c }) => c.has) ? barSvg(Math.max(640, data.length * 90), 280, cols, inr) : '<div class="empty">Enter pump counts to see the monthly cost trend.</div>';
+    chartEl.innerHTML = data.some(({ c }) => c.has) ? barSvg(Math.max(chartEl.clientWidth || 640, data.length * 90), 260, cols, inr) : '<div class="empty">Enter pump counts to see the monthly cost trend.</div>';
     $('legend').innerHTML = legend.map(([n, col]) => `<span data-legend="${esc(n)}"><i style="background:${col}"></i>${n}</span>`).join('');
 
     renderOverallSummaryTable(data);
