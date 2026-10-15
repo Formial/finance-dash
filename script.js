@@ -29,19 +29,9 @@
     const u = s.unitCosts || {};
     s.unitCosts = {};
     ALL_PUMPS.forEach(([k]) => { s.unitCosts[k] = Object.assign({}, DEFAULT_UNIT[k], u[k]); });
-    if (s.months['2026-09'] && !s.months['2026-09'].rxReportCustom) {
-      s.months['2026-09'].rxReportCustom = {
-        count20: 472,
-        count50: 1,
-        countFoam: 8,
-        countOld: 0,
-        packCost: 101910.00,
-        apiCost: 15382.33,
-        preparedBy: 'Pharmacy Operations',
-        approvedBy: 'Saad',
-        notes: ''
-      };
-    }
+    // Drop the old hardcoded September Rx report override so it follows live figures again.
+    const sep = s.months['2026-09'] && s.months['2026-09'].rxReportCustom;
+    if (sep && num(sep.packCost) === 101910 && num(sep.apiCost) === 15382.33) delete s.months['2026-09'].rxReportCustom;
     return s;
   }
   let state = normalize({});
@@ -1126,7 +1116,7 @@
 
     setModalStatusMsg(`Generating ${filename}...`);
 
-    const liveRx = (reportType === 'rx' || rec(monthStr).rxReportCustom) ? getLiveRxEditValues() : null;
+    const liveRx = liveRxFor(reportType, monthStr);
     const htmlContent = generateReportHtml(reportType, monthStr, liveRx);
 
     const container = document.createElement('div');
@@ -1141,6 +1131,8 @@
       html2canvas: {
         scale: 2,
         useCORS: true,
+        scrollX: -window.scrollX,
+        scrollY: -window.scrollY,
         letterRendering: true,
         backgroundColor: '#ffffff'
       },
@@ -1170,7 +1162,7 @@
   }
 
   function printReport(reportType, monthStr) {
-    const liveRx = (reportType === 'rx' || rec(monthStr).rxReportCustom) ? getLiveRxEditValues() : null;
+    const liveRx = liveRxFor(reportType, monthStr);
     const htmlContent = generateReportHtml(reportType, monthStr, liveRx);
     const printArea = $('reportPrintArea');
     if (!printArea) return;
@@ -1257,6 +1249,14 @@
     if ($('rxEditNotes')) $('rxEditNotes').value = rxData.notes || '';
   }
 
+  // Rx edit-form values only count while the popup is open and showing this month;
+  // otherwise (e.g. the card's Download button) reports use the saved data.
+  function liveRxFor(reportType, monthStr) {
+    const modal = $('reportsModal');
+    if (!modal || modal.hidden || monthStr !== cur) return null;
+    return (reportType === 'rx' || rec(monthStr).rxReportCustom) ? getLiveRxEditValues() : null;
+  }
+
   function getLiveRxEditValues() {
     const isPreOrAug = cur <= '2026-08';
     const c20 = num($('rxEdit20')?.value);
@@ -1284,7 +1284,7 @@
   function renderPreviewSheet() {
     const sheet = $('reportPreviewSheet');
     if (!sheet) return;
-    const liveRx = (currentModalReport === 'rx' || rec(cur).rxReportCustom) ? getLiveRxEditValues() : null;
+    const liveRx = liveRxFor(currentModalReport, cur);
     sheet.innerHTML = generateReportHtml(currentModalReport, cur, liveRx);
   }
 
