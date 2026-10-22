@@ -57,7 +57,7 @@
   function askLogin() {
     if (loginWait) return loginWait;
     const box = $('login'), err = $('loginErr');
-    box.hidden = false; err.textContent = '';
+    document.body.classList.add('locked'); box.hidden = false; err.textContent = '';
     loginWait = new Promise((resolve) => {
       (async () => {
         try {
@@ -71,7 +71,7 @@
               try {
                 const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential }) });
                 const d = await r.json().catch(() => ({}));
-                if (r.ok) { box.hidden = true; loginWait = null; showUser(d.email); resolve(true); return; }
+                if (r.ok) { box.hidden = true; document.body.classList.remove('locked'); loginWait = null; showUser(d.email); resolve(true); return; }
                 err.textContent = r.status === 403 ? 'This Google account is not authorised. Please contact the admin.' : (d.error || 'Sign-in failed');
               } catch (x) { err.textContent = 'Server unreachable'; }
             },
@@ -1342,9 +1342,9 @@
   // ---- events -------------------------------------------------------------
   if ($('signOut')) $('signOut').onclick = async () => {
     try { await fetch('/api/logout', { method: 'POST' }); } catch (e) {}
+    try { localStorage.removeItem(KEY); localStorage.removeItem('formial_tab'); } catch (e) {}
     location.reload();
   };
-  if (online) fetch('/api/status').then((r) => r.json()).then((s) => { if (s.authRequired && s.authed) showUser(s.email); }).catch(() => {});
   $('sideNav').onclick = (e) => {
     const btn = e.target.closest('.nav-btn');
     if (!btn) return;
@@ -1593,6 +1593,17 @@
 
   // Init
   (async function init() {
+    if (online) {
+      // Nothing is shown until the server confirms this browser is signed in.
+      let st = null;
+      try { st = await (await fetch('/api/status')).json(); } catch (e) {}
+      if (!st) { $('login').hidden = false; $('loginErr').textContent = 'Server unreachable'; return; }
+      if (st.authRequired && !st.authed) {
+        state = normalize({}); // never show figures cached in this browser before signing in
+        await askLogin();
+      } else if (st.authRequired) showUser(st.email);
+    }
+    document.body.classList.remove('locked');
     setupChartTooltips($('overall'));
     setupChartTooltips($('rxChart'));
     setTab(activeTab);
