@@ -13,6 +13,6 @@ export default async function handler(req, res) {
     json(res, 200, { ok: true, data: current, syncedMonths: Object.keys(synced) });
   } catch (err) {
     console.error('sync error:', err.message);
-    json(res, 500, { ok: false, error: err.message });
+    json(res, 500, { ok: false, error: 'Server error' });
   }
 }

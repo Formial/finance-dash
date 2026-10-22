@@ -12,7 +12,11 @@ Monthly pump counts, cost per pump, COGS and cost trends for Formial Labs Pharma
 ## Deploy (Vercel)
 Set these environment variables for Production, then redeploy:
 - `MONGODB_URI` - same as the pharmacy dashboard
-- `DASHBOARD_PASSWORD` - the shared password for the page. Without it the API stays locked.
+- `GOOGLE_CLIENT_ID` - the Google OAuth client ID (same one as the pharmacy dashboard). Add the deployed URL to its Authorized JavaScript origins.
+- `ALLOWED_EMAILS` - comma-separated Google emails allowed to sign in. Anyone else is refused.
+- `SESSION_SECRET` - long random string that signs the session cookie.
+
+Without these the API stays locked. A local run with no `ALLOWED_EMAILS` is open (the server only listens on 127.0.0.1).
 
 Figures (revenue, notes, ledger, synced numbers) are stored in the `financeDashboard` collection of the same database, so the deployed site and a local run share one set of data.
 

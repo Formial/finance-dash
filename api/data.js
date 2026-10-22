@@ -9,6 +9,6 @@ export default async function handler(req, res) {
     json(res, 200, await getState());
   } catch (err) {
     console.error('data error:', err.message);
-    json(res, 500, { error: err.message });
+    json(res, 500, { error: 'Server error' });
   }
 }

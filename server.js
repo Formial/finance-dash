@@ -18,7 +18,17 @@ const STATIC = {
   '/script.js': ['script.js', 'application/javascript; charset=utf-8'],
   '/html2pdf.bundle.min.js': ['html2pdf.bundle.min.js', 'application/javascript; charset=utf-8'],
 };
-const API = ['status', 'login', 'data', 'save', 'sync'];
+const API = ['status', 'login', 'logout', 'data', 'save', 'sync'];
+
+const SECURITY_HEADERS = {
+  "Content-Security-Policy": "default-src 'self'; script-src 'self' https://accounts.google.com/gsi/; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+  "X-Robots-Tag": "noindex, nofollow",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  "Cross-Origin-Opener-Policy": "same-origin-allow-popups"
+};
 
 function plain(res, code, body) {
   res.writeHead(code, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
@@ -28,6 +38,7 @@ function plain(res, code, body) {
 const server = http.createServer(async (req, res) => {
   // No CORS headers: the page and API share an origin, which also stops other
   // websites from calling this local server from the browser.
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
   const p = new URL(req.url, 'http://localhost').pathname;
 
   if (p.startsWith('/api/')) {

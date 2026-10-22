@@ -42,21 +42,43 @@
 
   // Password gate
   let loginWait = null;
+  const GSI = 'https://accounts.google.com/gsi/client';
+  function loadGsi() {
+    return new Promise((resolve, reject) => {
+      if (window.google?.accounts?.id) return resolve();
+      const s = document.createElement('script');
+      s.src = GSI; s.async = true; s.onload = resolve; s.onerror = () => reject(new Error('Could not load Google sign-in'));
+      document.head.appendChild(s);
+    });
+  }
+  function showUser(email) {
+    if ($('sidebarUser')) { $('sidebarUser').hidden = !email; $('sidebarEmail').textContent = email || ''; }
+  }
   function askLogin() {
     if (loginWait) return loginWait;
-    const box = $('login'), form = $('loginForm'), pw = $('loginPw'), err = $('loginErr');
-    box.hidden = false; pw.value = ''; pw.focus();
+    const box = $('login'), err = $('loginErr');
+    box.hidden = false; err.textContent = '';
     loginWait = new Promise((resolve) => {
-      form.onsubmit = async (e) => {
-        e.preventDefault();
-        err.textContent = '';
+      (async () => {
         try {
-          const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw.value }) });
-          if (r.ok) { box.hidden = true; loginWait = null; resolve(true); return; }
-          err.textContent = (await r.json().catch(() => ({}))).error || 'Login failed';
-        } catch (x) { err.textContent = 'Server unreachable'; }
-        pw.select();
-      };
+          const st = await (await fetch('/api/status')).json();
+          if (!st.googleClientId) { err.textContent = 'Google sign-in is not configured on the server.'; return; }
+          await loadGsi();
+          window.google.accounts.id.initialize({
+            client_id: st.googleClientId,
+            callback: async ({ credential }) => {
+              err.textContent = '';
+              try {
+                const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential }) });
+                const d = await r.json().catch(() => ({}));
+                if (r.ok) { box.hidden = true; loginWait = null; showUser(d.email); resolve(true); return; }
+                err.textContent = r.status === 403 ? 'This Google account is not authorised. Please contact the admin.' : (d.error || 'Sign-in failed');
+              } catch (x) { err.textContent = 'Server unreachable'; }
+            },
+          });
+          window.google.accounts.id.renderButton($('googleBtn'), { theme: 'outline', size: 'large', text: 'signin_with' });
+        } catch (x) { err.textContent = x.message || 'Sign-in unavailable'; }
+      })();
     });
     return loginWait;
   }
@@ -803,8 +825,8 @@
         ${manualLedgerSec}
 
         <div class="rep-signatures">
-          <div>Prepared by: ${rxData.preparedBy}</div>
-          <div>Verified &amp; Approved by: ${rxData.approvedBy}</div>
+          <div>Prepared by: ${esc(rxData.preparedBy)}</div>
+          <div>Verified &amp; Approved by: ${esc(rxData.approvedBy)}</div>
         </div>
       `;
     }
@@ -898,8 +920,8 @@
         ` : ''}
 
         <div class="rep-signatures">
-          <div>Prepared by: ${rxData.preparedBy}</div>
-          <div>Verified &amp; Approved by: ${rxData.approvedBy}</div>
+          <div>Prepared by: ${esc(rxData.preparedBy)}</div>
+          <div>Verified &amp; Approved by: ${esc(rxData.approvedBy)}</div>
         </div>
       `;
     }
@@ -1318,6 +1340,11 @@
   }
 
   // ---- events -------------------------------------------------------------
+  if ($('signOut')) $('signOut').onclick = async () => {
+    try { await fetch('/api/logout', { method: 'POST' }); } catch (e) {}
+    location.reload();
+  };
+  if (online) fetch('/api/status').then((r) => r.json()).then((s) => { if (s.authRequired && s.authed) showUser(s.email); }).catch(() => {});
   $('sideNav').onclick = (e) => {
     const btn = e.target.closest('.nav-btn');
     if (!btn) return;
