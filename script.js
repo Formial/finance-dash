@@ -1,4 +1,4 @@
-// Formial Finance dashboard — vanilla JS, data kept in localStorage & MongoDB.
+// Formial Pharmacy Finance dashboard — vanilla JS, data kept in localStorage & MongoDB.
 // Per-month record: rx counts (new/refill x cream20/cream50/foam),
 // COGS components, old packaging support, optional manual COGS override, a justification note.
 // Ledger: R&D / Marketing / Others expenses with dates.

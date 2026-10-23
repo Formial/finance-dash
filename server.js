@@ -65,6 +65,6 @@ const server = http.createServer(async (req, res) => {
 
 // Loopback only, so nobody else on the network can reach it.
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`Formial Finance Dashboard: http://localhost:${PORT}`);
+  console.log(`Formial Pharmacy Finance Dashboard: http://localhost:${PORT}`);
   if (!process.env.MONGODB_URI) console.log('MONGODB_URI is not set: add it to .env to enable Sync MongoDB.');
 });

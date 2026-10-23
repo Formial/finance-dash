@@ -1,4 +1,4 @@
-# Formial Finance Dashboard
+# Formial Pharmacy Finance Dashboard
 
 Monthly pump counts, cost per pump, COGS and cost trends for Formial Labs Pharmacy.
 
