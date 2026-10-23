@@ -35,7 +35,29 @@
     return s;
   }
   let state = normalize({});
-  try { state = normalize(JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+  let localSnapshot = null; // what this browser had saved before the page loaded
+  try { state = normalize(JSON.parse(localStorage.getItem(KEY) || '{}')); localSnapshot = JSON.parse(JSON.stringify(state)); } catch (e) {}
+
+  // Local edits that never reached the server win over the server's older values;
+  // anything the server has that this browser doesn't is kept too.
+  function mergeUnsaved(server, local) {
+    const blank = (v) => v === '' || v === undefined || v === null;
+    const deep = (s, l) => {
+      if (l && typeof l === 'object' && !Array.isArray(l) && s && typeof s === 'object' && !Array.isArray(s)) {
+        const out = { ...s };
+        Object.keys(l).forEach((k) => { out[k] = k in s ? deep(s[k], l[k]) : l[k]; });
+        return out;
+      }
+      return blank(l) && !blank(s) ? s : l;
+    };
+    const out = { ...server, months: { ...server.months }, ledger: [...server.ledger] };
+    Object.keys(local.months).forEach((m) => { out.months[m] = m in server.months ? deep(server.months[m], local.months[m]) : local.months[m]; });
+    const key = (e) => [e.date, e.cat, e.desc, e.amt].join('|');
+    const have = new Set(out.ledger.map(key));
+    local.ledger.forEach((e) => { if (!have.has(key(e))) out.ledger.push(e); });
+    out.unitCosts = deep(server.unitCosts || {}, local.unitCosts || {});
+    return normalize(out);
+  }
 
   const online = window.location.protocol.startsWith('http');
   const cache = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
@@ -89,18 +111,52 @@
   }
 
   // Saves debounced
-  let saveTimer = null;
+  // ---- saving: visible status, retries, and a persistent "unsaved" flag ----
+  const DIRTY = 'formial_finance_dirty';
+  let saveTimer = null, saving = false, forceNext = false;
+  const isDirty = () => { try { return localStorage.getItem(DIRTY) === '1'; } catch (e) { return false; } };
+  const setDirty = (v) => { try { v ? localStorage.setItem(DIRTY, '1') : localStorage.removeItem(DIRTY); } catch (e) {} };
+  function setSaveStatus(kind, text) {
+    const el = $('saveStatus');
+    if (!el) return;
+    el.hidden = false;
+    el.className = 'save-status ' + kind;
+    el.textContent = text;
+  }
+  async function flush() {
+    if (saving || !online) return;
+    saving = true;
+    clearTimeout(saveTimer);
+    setSaveStatus('saving', 'Saving…');
+    try {
+      const body = forceNext ? { ...state, force: true } : state;
+      const r = await api('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (r.ok) { setDirty(false); forceNext = false; setSaveStatus('saved', 'Saved ✓'); }
+      else if (r.status === 409) {
+        const d = await r.json().catch(() => ({}));
+        setSaveStatus('error', 'Not saved — server has more data. Click to reload');
+        $('saveStatus').title = d.error || '';
+        $('saveStatus').onclick = () => location.reload();
+      } else {
+        setSaveStatus('error', `Not saved (error ${r.status}) — retrying…`);
+        $('saveStatus').onclick = flush;
+        saveTimer = setTimeout(flush, 10000);
+      }
+    } catch (e) {
+      setSaveStatus('error', 'Not saved (offline?) — retrying…');
+      $('saveStatus').onclick = flush;
+      saveTimer = setTimeout(flush, 10000);
+    } finally { saving = false; }
+  }
   const save = () => {
     cache();
     if (!online) return;
+    setDirty(true);
+    setSaveStatus('saving', 'Saving…');
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(async () => {
-      try {
-        const r = await api('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state) });
-        if (!r.ok) console.warn('Save failed: HTTP ' + r.status);
-      } catch (e) { console.warn('Save failed:', e.message); }
-    }, 600);
+    saveTimer = setTimeout(flush, 600);
   };
+  window.addEventListener('beforeunload', (e) => { if (online && isDirty()) { e.preventDefault(); e.returnValue = ''; } });
 
   const today = new Date();
   let cur = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
@@ -1341,6 +1397,10 @@
 
   // ---- events -------------------------------------------------------------
   if ($('signOut')) $('signOut').onclick = async () => {
+    if (isDirty()) {
+      await flush();
+      if (isDirty() && !confirm('Some changes have not been saved yet. Sign out and lose them?')) return;
+    }
     try { await fetch('/api/logout', { method: 'POST' }); } catch (e) {}
     try { localStorage.removeItem(KEY); localStorage.removeItem('formial_tab'); } catch (e) {}
     location.reload();
@@ -1428,7 +1488,9 @@
     f.text().then((t) => {
       const d = JSON.parse(t);
       if (d && d.months && Array.isArray(d.ledger)) {
+        if (!confirm('Replace ALL current data with this file?')) return;
         state = normalize(d);
+        forceNext = true;
         save();
         render();
       } else {
@@ -1449,6 +1511,7 @@
 
     try {
       if (!online) throw new Error('NOSERVER');
+      if (isDirty()) { await flush(); if (isDirty()) throw new Error('save your changes first (see the status at the top)'); }
       const res = await api('/api/sync', { method: 'POST' });
       const result = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(result.error || `HTTP ${res.status}`);
@@ -1590,6 +1653,8 @@
   }
 
   window.addEventListener('scroll', hideTooltip, { passive: true });
+  // While the page is open, keep the session alive and retry anything unsaved.
+  if (online) setInterval(() => { fetch('/api/status').catch(() => {}); if (isDirty() && !saving) flush(); }, 5 * 60 * 1000);
 
   // Init
   (async function init() {
@@ -1611,16 +1676,31 @@
     if (!online) return;
     try {
       const res = await api('/api/data');
-      if (!res.ok) return;
+      if (!res.ok) { setSaveStatus('error', `Could not load saved data (error ${res.status})`); return; }
       const d = await res.json();
       const serverHas = d && d.months && (Object.keys(d.months).length || (d.ledger || []).length);
+      const local = localSnapshot;
+      const localHas = local && (Object.keys(local.months).length || local.ledger.length);
       if (serverHas) {
-        state = normalize(d);
-        cache();
-      } else if (Object.keys(state.months).length || state.ledger.length) {
-        save();
-      }
+        let next = normalize(d);
+        if (isDirty() && localHas) {
+          // This browser has edits that never reached the server: keep them.
+          state = mergeUnsaved(next, local);
+          save();
+          setSaveStatus('saving', 'Recovered unsaved entries — saving…');
+        } else {
+          state = next;
+          // Never throw away browser-only months: stash them before the cache is replaced.
+          if (localHas && Object.keys(local.months).some((m) => !(m in state.months))) {
+            try { localStorage.setItem('formial_finance_prev_' + Date.now(), JSON.stringify(local)); } catch (e) {}
+          }
+          cache();
+          setSaveStatus('saved', 'Saved ✓');
+        }
+      } else if (localHas) {
+        state = local; save();
+      } else setSaveStatus('saved', 'Saved ✓');
       render();
-    } catch (e) {}
+    } catch (e) { setSaveStatus('error', 'Could not load saved data'); }
   })();
 })();

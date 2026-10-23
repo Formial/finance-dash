@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "sync": "node sync.js"
+    "sync": "node sync.js",
+    "backups": "node restore.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

@@ -1,8 +1,9 @@
 import { json } from '../lib/http.js';
-import { authRequired, isAuthed, googleClientId, sessionUser } from '../lib/auth.js';
+import { authRequired, isAuthed, googleClientId, sessionUser, refreshSession } from '../lib/auth.js';
 
 export default function handler(req, res) {
   const authed = isAuthed(req);
+  if (authed) refreshSession(req, res);
   json(res, 200, {
     ok: true,
     authRequired: authRequired(),

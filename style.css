@@ -862,3 +862,9 @@ tr.grp td { background: var(--bg2); color: var(--text); }
 .login { background: var(--primary); }
 body.locked > *:not(#login) { display: none !important; }
 body.locked { background: var(--primary); }
+
+.save-status { border: 0; background: transparent; font: 600 12px var(--font); color: rgba(255,255,255,.85); padding: 4px 8px; border-radius: 6px; cursor: default; }
+.save-status[hidden] { display: none; }
+.save-status.saving { color: #fde68a; }
+.save-status.error { background: #b4231a; color: #fff; cursor: pointer; }
+.save-status { white-space: nowrap; }
